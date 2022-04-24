@@ -6,8 +6,22 @@ use std::ffi::{CStr, CString};
 use vk_shader_macros::include_glsl;
 use winit::window::Window;
 
-const VERT: &[u32] = include_glsl!("src/shaders/triangle.vert");
-const FRAG: &[u32] = include_glsl!("src/shaders/triangle.frag");
+const COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
+const COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
+const RED_VERT: &[u32] = include_glsl!("src/shaders/red_triangle.vert");
+const RED_FRAG: &[u32] = include_glsl!("src/shaders/red_triangle.frag");
+
+#[derive(Clone)]
+pub enum SelectedPipeline {
+    Colored,
+    Red,
+}
+
+impl Default for SelectedPipeline {
+    fn default() -> Self {
+        SelectedPipeline::Colored
+    }
+}
 
 pub struct VulkanContext {
     pub entry: ash::Entry,
@@ -22,8 +36,9 @@ pub struct VulkanContext {
     pub swapchain_image_views: Vec<vk::ImageView>,
     pub framebuffers: Vec<vk::Framebuffer>,
     pub sync_structures: SyncStructures,
-    pub pipeline: vk::Pipeline,
     pub present_queue: vk::Queue,
+    pub colored_pipeline: vk::Pipeline,
+    pub red_pipeline: vk::Pipeline,
 }
 
 impl VulkanContext {
@@ -42,7 +57,13 @@ impl VulkanContext {
             let framebuffers =
                 create_framebuffers(&device, &swapchain, &swapchain_image_views, &render_pass);
             let sync_structures = SyncStructures::new(&device);
-            let pipeline = create_pipeline(&device, &render_pass, &swapchain);
+
+            let shader_stages = create_shader_stages(&device, COLORED_VERT, COLORED_FRAG);
+            let colored_pipeline =
+                create_pipeline(&device, &render_pass, &swapchain, &shader_stages);
+
+            let shader_stages = create_shader_stages(&device, RED_VERT, RED_FRAG);
+            let red_pipeline = create_pipeline(&device, &render_pass, &swapchain, &shader_stages);
 
             Self {
                 entry,
@@ -57,13 +78,14 @@ impl VulkanContext {
                 swapchain_image_views,
                 framebuffers,
                 sync_structures,
-                pipeline,
+                colored_pipeline,
+                red_pipeline,
                 present_queue,
             }
         }
     }
 
-    pub unsafe fn render(&self) {
+    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline) {
         let render_fence = &self.sync_structures.render_fence;
         let present_semaphore = &self.sync_structures.present_semaphore;
         let render_semaphore = &self.sync_structures.render_semaphore;
@@ -72,7 +94,10 @@ impl VulkanContext {
         let swapchain = &self.swapchain;
         let render_pass = &self.render_pass;
         let framebuffers = &self.framebuffers;
-        let pipeline = &self.pipeline;
+        let pipeline = match selected_pipeline {
+            SelectedPipeline::Colored => &self.colored_pipeline,
+            SelectedPipeline::Red => &self.red_pipeline,
+        };
 
         device
             .wait_for_fences(std::slice::from_ref(render_fence), true, 1000000000)
@@ -122,7 +147,9 @@ impl VulkanContext {
             &render_pass_begin_info,
             vk::SubpassContents::INLINE,
         );
+
         device.cmd_bind_pipeline(*command_buffer, vk::PipelineBindPoint::GRAPHICS, *pipeline);
+
         device.cmd_draw(*command_buffer, 3, 1, 0, 0);
         device.cmd_end_render_pass(*command_buffer);
         device.end_command_buffer(*command_buffer).unwrap();
@@ -148,6 +175,41 @@ impl VulkanContext {
             .queue_present(self.present_queue, &present_info)
             .unwrap();
     }
+}
+
+unsafe fn create_shader_stages(
+    device: &ash::Device,
+    vertex_shader: &[u32],
+    fragment_shader: &[u32],
+) -> [vk::PipelineShaderStageCreateInfo; 2] {
+    let shader_entry_name = CStr::from_bytes_with_nul_unchecked(b"main\0");
+    let vertex_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::builder().code(vertex_shader),
+            None,
+        )
+        .unwrap();
+    let fragment_module = device
+        .create_shader_module(
+            &vk::ShaderModuleCreateInfo::builder().code(fragment_shader),
+            None,
+        )
+        .unwrap();
+    let shader_stages = [
+        vk::PipelineShaderStageCreateInfo {
+            module: vertex_module,
+            p_name: shader_entry_name.as_ptr(),
+            stage: vk::ShaderStageFlags::VERTEX,
+            ..Default::default()
+        },
+        vk::PipelineShaderStageCreateInfo {
+            module: fragment_module,
+            p_name: shader_entry_name.as_ptr(),
+            stage: vk::ShaderStageFlags::FRAGMENT,
+            ..Default::default()
+        },
+    ];
+    shader_stages
 }
 
 unsafe fn init(window: &Window) -> (ash::Entry, ash::Instance) {
@@ -255,31 +317,8 @@ unsafe fn create_pipeline(
     device: &ash::Device,
     render_pass: &vk::RenderPass,
     swapchain: &Swapchain,
+    shader_stages: &[vk::PipelineShaderStageCreateInfo],
 ) -> vk::Pipeline {
-    let shader_entry_name = CStr::from_bytes_with_nul_unchecked(b"main\0");
-    let vertex_module = device
-        .create_shader_module(&vk::ShaderModuleCreateInfo::builder().code(VERT), None)
-        .unwrap();
-
-    let fragment_module = device
-        .create_shader_module(&vk::ShaderModuleCreateInfo::builder().code(FRAG), None)
-        .unwrap();
-
-    let shader_stages = [
-        vk::PipelineShaderStageCreateInfo {
-            module: vertex_module,
-            p_name: shader_entry_name.as_ptr(),
-            stage: vk::ShaderStageFlags::VERTEX,
-            ..Default::default()
-        },
-        vk::PipelineShaderStageCreateInfo {
-            module: fragment_module,
-            p_name: shader_entry_name.as_ptr(),
-            stage: vk::ShaderStageFlags::FRAGMENT,
-            ..Default::default()
-        },
-    ];
-
     let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
     let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
@@ -347,9 +386,9 @@ unsafe fn create_pipeline(
         .viewports(std::slice::from_ref(&viewport))
         .scissors(std::slice::from_ref(&scissor));
 
-    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
-    let dynamic_state =
-        &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
+    // let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    // let dynamic_state =
+    //     &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
 
     let pipeline_layout = device
         .create_pipeline_layout(&Default::default(), None)
