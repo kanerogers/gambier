@@ -110,21 +110,12 @@ impl VulkanContext {
             // Resources
             let descriptor_pool = create_descriptor_pool(&device);
 
-            let vertices = [
-                Vertex::new(-1., -1., 0.),
-                Vertex::new(1., -1., 0.),
-                Vertex::new(-1., 1., 0.),
-                Vertex::new(-1., 1., 0.),
-                Vertex::new(1., -1., 0.),
-                Vertex::new(1., 1., 0.),
-            ];
-            let vertex_buffer = Buffer::new(
+            let vertex_buffer = fun_name(
                 &device,
                 &instance,
-                &physical_device,
-                &descriptor_pool,
-                &descriptor_set_layout,
-                &vertices,
+                physical_device,
+                descriptor_pool,
+                descriptor_set_layout,
             );
 
             Self {
@@ -252,6 +243,33 @@ impl VulkanContext {
             .queue_present(self.present_queue, &present_info)
             .unwrap();
     }
+}
+
+fn fun_name(
+    device: &ash::Device,
+    instance: &ash::Instance,
+    physical_device: vk::PhysicalDevice,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+) -> Buffer<Vertex> {
+    let vertices = [
+        Vertex::new(-1., -1., 0.),
+        Vertex::new(1., -1., 0.),
+        Vertex::new(1., 1., 0.),
+        Vertex::new(-1., 1., 0.),
+    ];
+    let vertex_buffer = unsafe {
+        Buffer::new(
+            device,
+            instance,
+            &physical_device,
+            &descriptor_pool,
+            &descriptor_set_layout,
+            &vertices,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+        )
+    };
+    vertex_buffer
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {

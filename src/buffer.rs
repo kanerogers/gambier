@@ -9,6 +9,7 @@ pub struct Buffer<T: Sized> {
     pub memory_address: std::ptr::NonNull<c_void>,
     pub descriptor_set: vk::DescriptorSet,
     _phantom: PhantomData<T>,
+    usage: vk::BufferUsageFlags,
 }
 
 impl<T: Sized> Buffer<T> {
@@ -18,15 +19,14 @@ impl<T: Sized> Buffer<T> {
         physical_device: &vk::PhysicalDevice,
         descriptor_pool: &vk::DescriptorPool,
         descriptor_set_layout: &vk::DescriptorSetLayout,
-        data: &[T],
+        initial_data: &[T],
+        usage: vk::BufferUsageFlags,
     ) -> Buffer<T> {
         let size = (std::mem::size_of::<T>() * 1024 * 1024) as vk::DeviceSize;
         println!("Attempting to create buffer of {:?} bytes..", size);
         let buffer = device
             .create_buffer(
-                &vk::BufferCreateInfo::builder()
-                    .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
-                    .size(size),
+                &vk::BufferCreateInfo::builder().usage(usage).size(size),
                 None,
             )
             .unwrap();
@@ -79,37 +79,40 @@ impl<T: Sized> Buffer<T> {
 
         println!("Copying vertices..");
         copy_nonoverlapping(
-            data.as_ptr(),
+            initial_data.as_ptr(),
             std::mem::transmute(memory_address),
-            data.len(),
+            initial_data.len(),
         );
         println!("..done!");
 
-        // let descriptor_set = device
-        //     .allocate_descriptor_sets(
-        //         &vk::DescriptorSetAllocateInfo::builder()
-        //             .descriptor_pool(*descriptor_pool)
-        //             .set_layouts(&[*descriptor_set_layout]),
-        //     )
-        //     .unwrap()[0];
+        if usage == vk::BufferUsageFlags::STORAGE_BUFFER {
+            let descriptor_set = device
+                .allocate_descriptor_sets(
+                    &vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(*descriptor_pool)
+                        .set_layouts(&[*descriptor_set_layout]),
+                )
+                .unwrap()[0];
 
-        // let buffer_info = DescriptorBufferInfo::builder()
-        //     .buffer(buffer)
-        //     .offset(0)
-        //     .range(std::mem::size_of_val(&vertices) as _);
-        // let write = vk::WriteDescriptorSet::builder()
-        //     .buffer_info(std::slice::from_ref(&buffer_info))
-        //     .dst_set(descriptor_set)
-        //     .dst_binding(0)
-        //     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
+            let buffer_info = vk::DescriptorBufferInfo::builder()
+                .buffer(buffer)
+                .offset(0)
+                .range(std::mem::size_of::<T>() as _);
+            let write = vk::WriteDescriptorSet::builder()
+                .buffer_info(std::slice::from_ref(&buffer_info))
+                .dst_set(descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
 
-        // device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
+            device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
+        }
 
         Buffer {
             buffer,
             device_memory,
             memory_address: std::ptr::NonNull::new_unchecked(memory_address),
             descriptor_set: vk::DescriptorSet::null(),
+            usage,
             _phantom: PhantomData,
         }
     }
