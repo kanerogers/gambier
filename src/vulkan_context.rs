@@ -33,7 +33,11 @@ pub struct Vertex {
     vx: f32,
     vy: f32,
     vz: f32,
-    vw: f32,
+    vw: f32, // padding
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
 }
 
 impl Vertex {
@@ -44,19 +48,58 @@ impl Vertex {
                 stride: std::mem::size_of::<Vertex>() as _,
                 input_rate: vk::VertexInputRate::VERTEX,
             }],
-            attributes: vec![vk::VertexInputAttributeDescription {
-                location: 0,
-                binding: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: 0,
-            }],
+            attributes: vec![
+                vk::VertexInputAttributeDescription {
+                    location: 0,
+                    binding: 0,
+                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    offset: 0,
+                },
+                vk::VertexInputAttributeDescription {
+                    location: 1,
+                    binding: 0,
+                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    offset: (std::mem::size_of::<f32>() * 4) as u32,
+                },
+            ],
+        }
+    }
+
+    fn new(vx: f32, vy: f32, vz: f32) -> Self {
+        Self {
+            vx,
+            vy,
+            vz,
+            vw: 1.,
+            ..Default::default()
+        }
+    }
+
+    fn new_coloured(vx: f32, vy: f32, vz: f32, r: f32, g: f32, b: f32) -> Self {
+        Self {
+            vx,
+            vy,
+            vz,
+            r,
+            g,
+            b,
+            ..Default::default()
         }
     }
 }
 
-impl Vertex {
-    fn new(vx: f32, vy: f32, vz: f32) -> Self {
-        Self { vx, vy, vz, vw: 1. }
+impl Default for Vertex {
+    fn default() -> Self {
+        Self {
+            vx: 0.,
+            vy: 0.,
+            vz: 0.,
+            vw: 1.,
+            r: 1.,
+            g: 1.,
+            b: 1.,
+            a: 0.,
+        }
     }
 }
 
@@ -264,17 +307,13 @@ fn import_model(
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
-    let gltf = gltf::Gltf::open("assets/box.glb").unwrap();
-    let blob = gltf.blob.as_ref().unwrap();
+    let (gltf, buffers, _images) = gltf::import("assets/box.gltf").unwrap();
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
-            import_node(node, &mut indices, &mut vertices, &blob);
+            import_node(node, &mut indices, &mut vertices, &buffers);
         }
     }
-
-    println!("Indices: {:?}", indices);
-    println!("Vertices: {:?}", vertices);
 
     let vertex_buffer = unsafe {
         Buffer::new(
@@ -303,29 +342,40 @@ fn import_model(
     (vertex_buffer, index_buffer)
 }
 
-fn import_node(node: gltf::Node, indices: &mut Vec<u32>, vertices: &mut Vec<Vertex>, blob: &[u8]) {
+fn import_node(
+    node: gltf::Node,
+    indices: &mut Vec<u32>,
+    vertices: &mut Vec<Vertex>,
+    blob: &[gltf::buffer::Data],
+) {
     if let Some(mesh) = node.mesh() {
         for primitive in mesh.primitives() {
-            let reader = primitive.reader(|_| Some(blob));
-            match reader.read_indices().unwrap() {
-                gltf::mesh::util::ReadIndices::U32(iter) => {
-                    for i in iter {
-                        indices.push(i);
-                    }
-                }
-                gltf::mesh::util::ReadIndices::U8(iter) => {
-                    for i in iter {
-                        indices.push(i as _);
-                    }
-                }
-                gltf::mesh::util::ReadIndices::U16(iter) => {
-                    for i in iter {
-                        indices.push(i as _);
-                    }
-                }
+            let reader = primitive.reader(|b| Some(&blob[b.index()]));
+            for i in reader.read_indices().unwrap().into_u32() {
+                indices.push(i);
             }
-            for pos in reader.read_positions().unwrap() {
-                vertices.push(Vertex::new(pos[0], pos[1], pos[2]));
+
+            for position in reader.read_positions().unwrap() {
+                vertices.push(Vertex::new(position[0], position[1], position[2]));
+            }
+
+            if let Some(colours) = reader.read_colors(0) {
+                for (colour, position) in
+                    colours.into_rgb_f32().zip(reader.read_positions().unwrap())
+                {
+                    vertices.push(Vertex::new_coloured(
+                        position[0],
+                        position[1],
+                        position[2],
+                        colour[0],
+                        colour[1],
+                        colour[2],
+                    ));
+                }
+            } else {
+                for position in reader.read_positions().unwrap() {
+                    vertices.push(Vertex::new(position[0], position[1], position[2]));
+                }
             }
         }
     }
