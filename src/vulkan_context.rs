@@ -27,17 +27,15 @@ pub struct VertexInputDescription {
     attributes: Vec<vk::VertexInputAttributeDescription>,
 }
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Debug, Clone)]
 pub struct Vertex {
     vx: f32,
     vy: f32,
     vz: f32,
-    vw: f32, // padding
     r: f32,
     g: f32,
     b: f32,
-    a: f32,
 }
 
 impl Vertex {
@@ -52,14 +50,14 @@ impl Vertex {
                 vk::VertexInputAttributeDescription {
                     location: 0,
                     binding: 0,
-                    format: vk::Format::R32G32B32A32_SFLOAT,
+                    format: vk::Format::R32G32B32_SFLOAT,
                     offset: 0,
                 },
                 vk::VertexInputAttributeDescription {
                     location: 1,
                     binding: 0,
-                    format: vk::Format::R32G32B32A32_SFLOAT,
-                    offset: (std::mem::size_of::<f32>() * 4) as u32,
+                    format: vk::Format::R32G32B32_SFLOAT,
+                    offset: (std::mem::size_of::<f32>() * 3) as u32,
                 },
             ],
         }
@@ -70,7 +68,6 @@ impl Vertex {
             vx,
             vy,
             vz,
-            vw: 1.,
             ..Default::default()
         }
     }
@@ -94,11 +91,9 @@ impl Default for Vertex {
             vx: 0.,
             vy: 0.,
             vz: 0.,
-            vw: 1.,
             r: 1.,
             g: 1.,
             b: 1.,
-            a: 0.,
         }
     }
 }
