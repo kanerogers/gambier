@@ -2,6 +2,7 @@ use ash::{
     extensions::khr::{Surface as SurfaceLoader, Swapchain as SwapchainLoader},
     vk,
 };
+use nalgebra_glm::TMat4x4;
 use std::ffi::{CStr, CString};
 use vk_shader_macros::include_glsl;
 use winit::window::Window;
@@ -36,6 +37,13 @@ pub struct Vertex {
     r: f32,
     g: f32,
     b: f32,
+}
+
+#[repr(C, align(16))]
+#[derive(Debug, Clone)]
+pub struct Globals {
+    pub projection: TMat4x4<f32>,
+    pub view: TMat4x4<f32>,
 }
 
 impl Vertex {
@@ -182,7 +190,7 @@ impl VulkanContext {
         }
     }
 
-    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline) {
+    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline, globals: &Globals) {
         let render_fence = &self.sync_structures.render_fence;
         let present_semaphore = &self.sync_structures.present_semaphore;
         let render_semaphore = &self.sync_structures.render_semaphore;
@@ -198,8 +206,13 @@ impl VulkanContext {
         let index_buffer = &self.index_buffer;
         let vertex_buffer = &self.vertex_buffer;
 
-        let _pipeline_layout = self.pipeline_layout;
+        let pipeline_layout = self.pipeline_layout;
         let _descriptor_sets = [self.vertex_buffer.descriptor_set];
+
+        let global_push_constant = std::slice::from_raw_parts(
+            (globals as *const Globals) as *const u8,
+            std::mem::size_of::<Globals>(),
+        );
 
         device
             .wait_for_fences(std::slice::from_ref(render_fence), true, 1000000000)
@@ -271,6 +284,13 @@ impl VulkanContext {
             0,
             std::slice::from_ref(&vertex_buffer.buffer),
             &[0],
+        );
+        device.cmd_push_constants(
+            command_buffer,
+            pipeline_layout,
+            vk::ShaderStageFlags::VERTEX,
+            0,
+            global_push_constant,
         );
 
         device.cmd_draw_indexed(command_buffer, index_buffer.len as _, 1, 0, 0, 0);
@@ -416,6 +436,7 @@ unsafe fn create_descriptor_layouts(
         descriptor_count: 1,
         ..Default::default()
     }];
+
     let descriptor_set_layout = device
         .create_descriptor_set_layout(
             &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
@@ -425,7 +446,14 @@ unsafe fn create_descriptor_layouts(
 
     let pipeline_layout = device
         .create_pipeline_layout(
-            &vk::PipelineLayoutCreateInfo::builder().set_layouts(&[descriptor_set_layout]),
+            &vk::PipelineLayoutCreateInfo::builder()
+                .set_layouts(&[descriptor_set_layout])
+                .push_constant_ranges(&[vk::PushConstantRange {
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    offset: 0,
+                    size: std::mem::size_of::<Globals>() as _,
+                    ..Default::default()
+                }]),
             None,
         )
         .unwrap();
