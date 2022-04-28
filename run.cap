@@ -17,7 +17,7 @@
             "captureCallstacksOnlyDraws": false,
             "debugOutputMute": true,
             "delayForDebugger": 0,
-            "hookIntoChildren": false,
+            "hookIntoChildren": true,
             "refAllResources": false,
             "verifyBufferAccess": false
         },

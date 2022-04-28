@@ -1,21 +1,19 @@
 use ash::{
     extensions::khr::{Surface as SurfaceLoader, Swapchain as SwapchainLoader},
-    vk::{self, DescriptorBufferInfo},
+    vk,
 };
-use core::ptr::copy_nonoverlapping;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{CStr, CString};
 use vk_shader_macros::include_glsl;
 use winit::window::Window;
 
+use crate::buffer::Buffer;
+
 const COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
 const COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
-const RED_VERT: &[u32] = include_glsl!("src/shaders/red_triangle.vert");
-const RED_FRAG: &[u32] = include_glsl!("src/shaders/red_triangle.frag");
 
 #[derive(Clone)]
 pub enum SelectedPipeline {
     Colored,
-    Red,
 }
 
 impl Default for SelectedPipeline {
@@ -24,13 +22,13 @@ impl Default for SelectedPipeline {
     }
 }
 
-struct VertexInputDescription {
+pub struct VertexInputDescription {
     bindings: Vec<vk::VertexInputBindingDescription>,
     attributes: Vec<vk::VertexInputAttributeDescription>,
 }
 
 #[repr(C)]
-struct Vertex {
+pub struct Vertex {
     vx: f32,
     vy: f32,
     vz: f32,
@@ -76,18 +74,10 @@ pub struct VulkanContext {
     pub sync_structures: SyncStructures,
     pub present_queue: vk::Queue,
     pub colored_pipeline: vk::Pipeline,
-    pub red_pipeline: vk::Pipeline,
-    pub vertex_buffer: Buffer,
+    pub vertex_buffer: Buffer<Vertex>,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
-}
-
-pub struct Buffer {
-    pub buffer: vk::Buffer,
-    pub device_memory: vk::DeviceMemory,
-    pub data: std::ptr::NonNull<c_void>,
-    pub descriptor_set: vk::DescriptorSet,
 }
 
 impl VulkanContext {
@@ -117,23 +107,24 @@ impl VulkanContext {
                 pipeline_layout,
             );
 
-            let shader_stages = create_shader_stages(&device, RED_VERT, RED_FRAG);
-            let red_pipeline = create_pipeline(
-                &device,
-                &render_pass,
-                &swapchain,
-                &shader_stages,
-                pipeline_layout,
-            );
-
             // Resources
             let descriptor_pool = create_descriptor_pool(&device);
-            let vertex_buffer = create_vertex_buffer(
+
+            let vertices = [
+                Vertex::new(-1., -1., 0.),
+                Vertex::new(1., -1., 0.),
+                Vertex::new(-1., 1., 0.),
+                Vertex::new(-1., 1., 0.),
+                Vertex::new(1., -1., 0.),
+                Vertex::new(1., 1., 0.),
+            ];
+            let vertex_buffer = Buffer::new(
                 &device,
                 &instance,
                 &physical_device,
                 &descriptor_pool,
                 &descriptor_set_layout,
+                &vertices,
             );
 
             Self {
@@ -150,7 +141,6 @@ impl VulkanContext {
                 framebuffers,
                 sync_structures,
                 colored_pipeline,
-                red_pipeline,
                 present_queue,
                 vertex_buffer,
                 descriptor_set_layout,
@@ -171,8 +161,8 @@ impl VulkanContext {
         let framebuffers = &self.framebuffers;
         let pipeline = match selected_pipeline {
             SelectedPipeline::Colored => &self.colored_pipeline,
-            SelectedPipeline::Red => &self.red_pipeline,
         };
+
         let pipeline_layout = self.pipeline_layout;
         let descriptor_sets = [self.vertex_buffer.descriptor_set];
 
@@ -201,10 +191,11 @@ impl VulkanContext {
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
             .unwrap();
+
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 0.0],
+                    float32: [1.0, 1.0, 1.0, 0.0],
                 },
             },
             vk::ClearValue {
@@ -236,7 +227,7 @@ impl VulkanContext {
         // );
         device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
 
-        device.cmd_draw(command_buffer, 3, 1, 0, 0);
+        device.cmd_draw(command_buffer, 6, 1, 0, 0);
         device.cmd_end_render_pass(command_buffer);
         device.end_command_buffer(command_buffer).unwrap();
         let submit_info = vk::SubmitInfo::builder()
@@ -303,108 +294,6 @@ unsafe fn create_descriptor_layouts(
         .unwrap();
 
     (descriptor_set_layout, pipeline_layout)
-}
-
-unsafe fn create_vertex_buffer(
-    device: &ash::Device,
-    instance: &ash::Instance,
-    physical_device: &vk::PhysicalDevice,
-    descriptor_pool: &vk::DescriptorPool,
-    descriptor_set_layout: &vk::DescriptorSetLayout,
-) -> Buffer {
-    let size = (std::mem::size_of::<Vertex>() * 1024 * 1024) as vk::DeviceSize;
-    println!("Attempting to create buffer of {:?} bytes..", size);
-    let buffer = device
-        .create_buffer(
-            &vk::BufferCreateInfo::builder()
-                .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
-                .size(size),
-            None,
-        )
-        .unwrap();
-    println!("..done! Allocating memory..");
-
-    // Allocate memory
-    let memory_requirements = device.get_buffer_memory_requirements(buffer);
-    let memory_type_bits = memory_requirements.memory_type_bits;
-    let memory_properties = instance.get_physical_device_memory_properties(*physical_device);
-
-    let mut memory_type_index = !0;
-    for i in 0..memory_properties.memory_type_count as usize {
-        if (memory_type_bits & (1 << i)) == 0 {
-            continue;
-        }
-        let properties = memory_properties.memory_types[i].property_flags;
-        if properties.contains(
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        ) {
-            memory_type_index = i;
-            println!("Using {} which has flags {:?}", i, properties);
-            break;
-        }
-    }
-
-    if memory_type_index == !0 {
-        panic!("Unable to find suitable memory!")
-    }
-
-    let device_memory = device
-        .allocate_memory(
-            &vk::MemoryAllocateInfo::builder()
-                .allocation_size(size)
-                .memory_type_index(memory_type_index as _),
-            None,
-        )
-        .unwrap();
-
-    println!("..done! Binding..");
-
-    // Bind memory
-    device.bind_buffer_memory(buffer, device_memory, 0).unwrap();
-
-    println!("..done!");
-
-    // Map memory
-    let data = device
-        .map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty())
-        .unwrap();
-
-    let vertices = [
-        Vertex::new(1., 1., 0.),
-        Vertex::new(-1., 1., 0.),
-        Vertex::new(0.0, -1., 0.),
-    ];
-
-    println!("Copying vertices..");
-    copy_nonoverlapping(vertices.as_ptr(), std::mem::transmute(data), vertices.len());
-    println!("..done!");
-
-    // let descriptor_set = device
-    //     .allocate_descriptor_sets(
-    //         &vk::DescriptorSetAllocateInfo::builder()
-    //             .descriptor_pool(*descriptor_pool)
-    //             .set_layouts(&[*descriptor_set_layout]),
-    //     )
-    //     .unwrap()[0];
-
-    // let buffer_info = DescriptorBufferInfo::builder()
-    //     .buffer(buffer)
-    //     .offset(0)
-    //     .range(std::mem::size_of_val(&vertices) as _);
-    // let write = vk::WriteDescriptorSet::builder()
-    //     .buffer_info(std::slice::from_ref(&buffer_info))
-    //     .dst_set(descriptor_set)
-    //     .dst_binding(0)
-    //     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
-
-    // device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
-
-    Buffer {
-        buffer,
-        device_memory,
-        data: std::ptr::NonNull::new(data).unwrap(),
-        descriptor_set: vk::DescriptorSet::null(),
-    }
 }
 
 unsafe fn create_shader_stages(

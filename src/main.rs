@@ -1,3 +1,4 @@
+pub mod buffer;
 pub mod vulkan_context;
 
 use vulkan_context::{SelectedPipeline, VulkanContext};
@@ -30,9 +31,6 @@ fn main() {
                     match input.virtual_keycode {
                         Some(VirtualKeyCode::Key1) => {
                             selected_pipeline = SelectedPipeline::Colored;
-                        }
-                        Some(VirtualKeyCode::Key2) => {
-                            selected_pipeline = SelectedPipeline::Red;
                         }
                         _ => {}
                     }
