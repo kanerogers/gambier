@@ -1,8 +1,9 @@
 use ash::{
     extensions::khr::{Surface as SurfaceLoader, Swapchain as SwapchainLoader},
-    vk::{self},
+    vk::{self, DescriptorBufferInfo},
 };
-use std::ffi::{CStr, CString};
+use core::ptr::copy_nonoverlapping;
+use std::ffi::{c_void, CStr, CString};
 use vk_shader_macros::include_glsl;
 use winit::window::Window;
 
@@ -23,6 +24,43 @@ impl Default for SelectedPipeline {
     }
 }
 
+struct VertexInputDescription {
+    bindings: Vec<vk::VertexInputBindingDescription>,
+    attributes: Vec<vk::VertexInputAttributeDescription>,
+}
+
+#[repr(C)]
+struct Vertex {
+    vx: f32,
+    vy: f32,
+    vz: f32,
+    vw: f32,
+}
+
+impl Vertex {
+    pub fn description() -> VertexInputDescription {
+        VertexInputDescription {
+            bindings: vec![vk::VertexInputBindingDescription {
+                binding: 0,
+                stride: std::mem::size_of::<Vertex>() as _,
+                input_rate: vk::VertexInputRate::VERTEX,
+            }],
+            attributes: vec![vk::VertexInputAttributeDescription {
+                location: 0,
+                binding: 0,
+                format: vk::Format::R32G32B32A32_SFLOAT,
+                offset: 0,
+            }],
+        }
+    }
+}
+
+impl Vertex {
+    fn new(vx: f32, vy: f32, vz: f32) -> Self {
+        Self { vx, vy, vz, vw: 1. }
+    }
+}
+
 pub struct VulkanContext {
     pub entry: ash::Entry,
     pub instance: ash::Instance,
@@ -39,6 +77,17 @@ pub struct VulkanContext {
     pub present_queue: vk::Queue,
     pub colored_pipeline: vk::Pipeline,
     pub red_pipeline: vk::Pipeline,
+    pub vertex_buffer: Buffer,
+    pub descriptor_set_layout: vk::DescriptorSetLayout,
+    pub descriptor_pool: vk::DescriptorPool,
+    pub pipeline_layout: vk::PipelineLayout,
+}
+
+pub struct Buffer {
+    pub buffer: vk::Buffer,
+    pub device_memory: vk::DeviceMemory,
+    pub data: std::ptr::NonNull<c_void>,
+    pub descriptor_set: vk::DescriptorSet,
 }
 
 impl VulkanContext {
@@ -57,13 +106,35 @@ impl VulkanContext {
             let framebuffers =
                 create_framebuffers(&device, &swapchain, &swapchain_image_views, &render_pass);
             let sync_structures = SyncStructures::new(&device);
+            let (descriptor_set_layout, pipeline_layout) = create_descriptor_layouts(&device);
 
             let shader_stages = create_shader_stages(&device, COLORED_VERT, COLORED_FRAG);
-            let colored_pipeline =
-                create_pipeline(&device, &render_pass, &swapchain, &shader_stages);
+            let colored_pipeline = create_pipeline(
+                &device,
+                &render_pass,
+                &swapchain,
+                &shader_stages,
+                pipeline_layout,
+            );
 
             let shader_stages = create_shader_stages(&device, RED_VERT, RED_FRAG);
-            let red_pipeline = create_pipeline(&device, &render_pass, &swapchain, &shader_stages);
+            let red_pipeline = create_pipeline(
+                &device,
+                &render_pass,
+                &swapchain,
+                &shader_stages,
+                pipeline_layout,
+            );
+
+            // Resources
+            let descriptor_pool = create_descriptor_pool(&device);
+            let vertex_buffer = create_vertex_buffer(
+                &device,
+                &instance,
+                &physical_device,
+                &descriptor_pool,
+                &descriptor_set_layout,
+            );
 
             Self {
                 entry,
@@ -81,6 +152,10 @@ impl VulkanContext {
                 colored_pipeline,
                 red_pipeline,
                 present_queue,
+                vertex_buffer,
+                descriptor_set_layout,
+                descriptor_pool,
+                pipeline_layout,
             }
         }
     }
@@ -89,7 +164,7 @@ impl VulkanContext {
         let render_fence = &self.sync_structures.render_fence;
         let present_semaphore = &self.sync_structures.present_semaphore;
         let render_semaphore = &self.sync_structures.render_semaphore;
-        let command_buffer = &self.command_buffer;
+        let command_buffer = self.command_buffer;
         let device = &self.device;
         let swapchain = &self.swapchain;
         let render_pass = &self.render_pass;
@@ -98,6 +173,8 @@ impl VulkanContext {
             SelectedPipeline::Colored => &self.colored_pipeline,
             SelectedPipeline::Red => &self.red_pipeline,
         };
+        let pipeline_layout = self.pipeline_layout;
+        let descriptor_sets = [self.vertex_buffer.descriptor_set];
 
         device
             .wait_for_fences(std::slice::from_ref(render_fence), true, 1000000000)
@@ -115,11 +192,11 @@ impl VulkanContext {
             )
             .unwrap();
         device
-            .reset_command_buffer(*command_buffer, vk::CommandBufferResetFlags::empty())
+            .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
             .unwrap();
         device
             .begin_command_buffer(
-                *command_buffer,
+                command_buffer,
                 &vk::CommandBufferBeginInfo::builder()
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
@@ -143,18 +220,27 @@ impl VulkanContext {
             .render_area(swapchain.resolution.into())
             .clear_values(&clear_values);
         device.cmd_begin_render_pass(
-            *command_buffer,
+            command_buffer,
             &render_pass_begin_info,
             vk::SubpassContents::INLINE,
         );
 
-        device.cmd_bind_pipeline(*command_buffer, vk::PipelineBindPoint::GRAPHICS, *pipeline);
+        device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, *pipeline);
+        // device.cmd_bind_descriptor_sets(
+        //     *command_buffer,
+        //     vk::PipelineBindPoint::GRAPHICS,
+        //     pipeline_layout,
+        //     0,
+        //     &descriptor_sets,
+        //     &[],
+        // );
+        device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
 
-        device.cmd_draw(*command_buffer, 3, 1, 0, 0);
-        device.cmd_end_render_pass(*command_buffer);
-        device.end_command_buffer(*command_buffer).unwrap();
+        device.cmd_draw(command_buffer, 3, 1, 0, 0);
+        device.cmd_end_render_pass(command_buffer);
+        device.end_command_buffer(command_buffer).unwrap();
         let submit_info = vk::SubmitInfo::builder()
-            .command_buffers(std::slice::from_ref(command_buffer))
+            .command_buffers(std::slice::from_ref(&command_buffer))
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
             .wait_semaphores(std::slice::from_ref(present_semaphore))
             .signal_semaphores(std::slice::from_ref(render_semaphore));
@@ -174,6 +260,150 @@ impl VulkanContext {
             .loader
             .queue_present(self.present_queue, &present_info)
             .unwrap();
+    }
+}
+
+unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
+    let pool_sizes = [vk::DescriptorPoolSize {
+        ty: vk::DescriptorType::STORAGE_BUFFER,
+        descriptor_count: 1,
+    }];
+    device
+        .create_descriptor_pool(
+            &vk::DescriptorPoolCreateInfo::builder()
+                .pool_sizes(&pool_sizes)
+                .max_sets(4),
+            None,
+        )
+        .unwrap()
+}
+
+unsafe fn create_descriptor_layouts(
+    device: &ash::Device,
+) -> (vk::DescriptorSetLayout, vk::PipelineLayout) {
+    let bindings = [vk::DescriptorSetLayoutBinding {
+        binding: 0,
+        descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+        stage_flags: vk::ShaderStageFlags::VERTEX,
+        descriptor_count: 1,
+        ..Default::default()
+    }];
+    let descriptor_set_layout = device
+        .create_descriptor_set_layout(
+            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
+            None,
+        )
+        .unwrap();
+
+    let pipeline_layout = device
+        .create_pipeline_layout(
+            &vk::PipelineLayoutCreateInfo::builder().set_layouts(&[descriptor_set_layout]),
+            None,
+        )
+        .unwrap();
+
+    (descriptor_set_layout, pipeline_layout)
+}
+
+unsafe fn create_vertex_buffer(
+    device: &ash::Device,
+    instance: &ash::Instance,
+    physical_device: &vk::PhysicalDevice,
+    descriptor_pool: &vk::DescriptorPool,
+    descriptor_set_layout: &vk::DescriptorSetLayout,
+) -> Buffer {
+    let size = (std::mem::size_of::<Vertex>() * 1024 * 1024) as vk::DeviceSize;
+    println!("Attempting to create buffer of {:?} bytes..", size);
+    let buffer = device
+        .create_buffer(
+            &vk::BufferCreateInfo::builder()
+                .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+                .size(size),
+            None,
+        )
+        .unwrap();
+    println!("..done! Allocating memory..");
+
+    // Allocate memory
+    let memory_requirements = device.get_buffer_memory_requirements(buffer);
+    let memory_type_bits = memory_requirements.memory_type_bits;
+    let memory_properties = instance.get_physical_device_memory_properties(*physical_device);
+
+    let mut memory_type_index = !0;
+    for i in 0..memory_properties.memory_type_count as usize {
+        if (memory_type_bits & (1 << i)) == 0 {
+            continue;
+        }
+        let properties = memory_properties.memory_types[i].property_flags;
+        if properties.contains(
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        ) {
+            memory_type_index = i;
+            println!("Using {} which has flags {:?}", i, properties);
+            break;
+        }
+    }
+
+    if memory_type_index == !0 {
+        panic!("Unable to find suitable memory!")
+    }
+
+    let device_memory = device
+        .allocate_memory(
+            &vk::MemoryAllocateInfo::builder()
+                .allocation_size(size)
+                .memory_type_index(memory_type_index as _),
+            None,
+        )
+        .unwrap();
+
+    println!("..done! Binding..");
+
+    // Bind memory
+    device.bind_buffer_memory(buffer, device_memory, 0).unwrap();
+
+    println!("..done!");
+
+    // Map memory
+    let data = device
+        .map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty())
+        .unwrap();
+
+    let vertices = [
+        Vertex::new(1., 1., 0.),
+        Vertex::new(-1., 1., 0.),
+        Vertex::new(0.0, -1., 0.),
+    ];
+
+    println!("Copying vertices..");
+    copy_nonoverlapping(vertices.as_ptr(), std::mem::transmute(data), vertices.len());
+    println!("..done!");
+
+    // let descriptor_set = device
+    //     .allocate_descriptor_sets(
+    //         &vk::DescriptorSetAllocateInfo::builder()
+    //             .descriptor_pool(*descriptor_pool)
+    //             .set_layouts(&[*descriptor_set_layout]),
+    //     )
+    //     .unwrap()[0];
+
+    // let buffer_info = DescriptorBufferInfo::builder()
+    //     .buffer(buffer)
+    //     .offset(0)
+    //     .range(std::mem::size_of_val(&vertices) as _);
+    // let write = vk::WriteDescriptorSet::builder()
+    //     .buffer_info(std::slice::from_ref(&buffer_info))
+    //     .dst_set(descriptor_set)
+    //     .dst_binding(0)
+    //     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
+
+    // device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
+
+    Buffer {
+        buffer,
+        device_memory,
+        data: std::ptr::NonNull::new(data).unwrap(),
+        descriptor_set: vk::DescriptorSet::null(),
     }
 }
 
@@ -318,8 +548,13 @@ unsafe fn create_pipeline(
     render_pass: &vk::RenderPass,
     swapchain: &Swapchain,
     shader_stages: &[vk::PipelineShaderStageCreateInfo],
+    pipeline_layout: vk::PipelineLayout,
 ) -> vk::Pipeline {
-    let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
+    let vertex_input_description = Vertex::description();
+    let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+        .vertex_attribute_descriptions(&vertex_input_description.attributes)
+        .vertex_binding_descriptions(&vertex_input_description.bindings);
+
     let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
 
@@ -389,10 +624,6 @@ unsafe fn create_pipeline(
     // let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
     // let dynamic_state =
     //     &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
-
-    let pipeline_layout = device
-        .create_pipeline_layout(&Default::default(), None)
-        .unwrap();
 
     let create_infos = vk::GraphicsPipelineCreateInfo::builder()
         .vertex_input_state(&vertex_input_state)
