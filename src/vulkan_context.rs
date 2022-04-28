@@ -75,6 +75,7 @@ pub struct VulkanContext {
     pub present_queue: vk::Queue,
     pub colored_pipeline: vk::Pipeline,
     pub vertex_buffer: Buffer<Vertex>,
+    pub index_buffer: Buffer<u32>,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
@@ -110,7 +111,14 @@ impl VulkanContext {
             // Resources
             let descriptor_pool = create_descriptor_pool(&device);
 
-            let vertex_buffer = fun_name(
+            let vertex_buffer = create_vertex_buffer(
+                &device,
+                &instance,
+                physical_device,
+                descriptor_pool,
+                descriptor_set_layout,
+            );
+            let index_buffer = create_index_buffer(
                 &device,
                 &instance,
                 physical_device,
@@ -134,6 +142,7 @@ impl VulkanContext {
                 colored_pipeline,
                 present_queue,
                 vertex_buffer,
+                index_buffer,
                 descriptor_set_layout,
                 descriptor_pool,
                 pipeline_layout,
@@ -216,9 +225,15 @@ impl VulkanContext {
         //     &descriptor_sets,
         //     &[],
         // );
+        device.cmd_bind_index_buffer(
+            command_buffer,
+            self.index_buffer.buffer,
+            0,
+            vk::IndexType::UINT32,
+        );
         device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
 
-        device.cmd_draw(command_buffer, 6, 1, 0, 0);
+        device.cmd_draw_indexed(command_buffer, 6, 1, 0, 0, 0);
         device.cmd_end_render_pass(command_buffer);
         device.end_command_buffer(command_buffer).unwrap();
         let submit_info = vk::SubmitInfo::builder()
@@ -245,7 +260,7 @@ impl VulkanContext {
     }
 }
 
-fn fun_name(
+fn create_vertex_buffer(
     device: &ash::Device,
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
@@ -270,6 +285,31 @@ fn fun_name(
         )
     };
     vertex_buffer
+}
+
+fn create_index_buffer(
+    device: &ash::Device,
+    instance: &ash::Instance,
+    physical_device: vk::PhysicalDevice,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+) -> Buffer<u32> {
+    let indices = [
+        0, 1, 2, // top right
+        2, 3, 0, // bottom left
+    ];
+
+    unsafe {
+        Buffer::new(
+            device,
+            instance,
+            &physical_device,
+            &descriptor_pool,
+            &descriptor_set_layout,
+            &indices,
+            vk::BufferUsageFlags::INDEX_BUFFER,
+        )
+    }
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
