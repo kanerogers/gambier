@@ -8,6 +8,7 @@ pub struct Buffer<T: Sized> {
     pub device_memory: vk::DeviceMemory,
     pub memory_address: std::ptr::NonNull<c_void>,
     pub descriptor_set: vk::DescriptorSet,
+    pub len: usize,
     _phantom: PhantomData<T>,
     _usage: vk::BufferUsageFlags,
 }
@@ -112,6 +113,7 @@ impl<T: Sized> Buffer<T> {
             device_memory,
             memory_address: std::ptr::NonNull::new_unchecked(memory_address),
             descriptor_set: vk::DescriptorSet::null(),
+            len: initial_data.len(),
             _usage: usage,
             _phantom: PhantomData,
         }

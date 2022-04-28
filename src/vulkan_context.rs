@@ -200,6 +200,9 @@ impl VulkanContext {
             SelectedPipeline::Colored => &self.colored_pipeline,
         };
 
+        let index_buffer = &self.index_buffer;
+        let vertex_buffer = &self.vertex_buffer;
+
         let _pipeline_layout = self.pipeline_layout;
         let _descriptor_sets = [self.vertex_buffer.descriptor_set];
 
@@ -268,11 +271,19 @@ impl VulkanContext {
             0,
             vk::IndexType::UINT32,
         );
-        device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
+        device.cmd_bind_vertex_buffers(
+            command_buffer,
+            0,
+            std::slice::from_ref(&vertex_buffer.buffer),
+            &[0],
+        );
 
-        device.cmd_draw_indexed(command_buffer, 6, 1, 0, 0, 0);
+        device.cmd_draw_indexed(command_buffer, index_buffer.len as _, 1, 0, 0, 0);
+
         device.cmd_end_render_pass(command_buffer);
         device.end_command_buffer(command_buffer).unwrap();
+
+        // Submit
         let submit_info = vk::SubmitInfo::builder()
             .command_buffers(std::slice::from_ref(&command_buffer))
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
