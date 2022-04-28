@@ -154,8 +154,8 @@ impl VulkanContext {
             SelectedPipeline::Colored => &self.colored_pipeline,
         };
 
-        let pipeline_layout = self.pipeline_layout;
-        let descriptor_sets = [self.vertex_buffer.descriptor_set];
+        let _pipeline_layout = self.pipeline_layout;
+        let _descriptor_sets = [self.vertex_buffer.descriptor_set];
 
         device
             .wait_for_fences(std::slice::from_ref(render_fence), true, 1000000000)

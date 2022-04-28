@@ -9,7 +9,7 @@ pub struct Buffer<T: Sized> {
     pub memory_address: std::ptr::NonNull<c_void>,
     pub descriptor_set: vk::DescriptorSet,
     _phantom: PhantomData<T>,
-    usage: vk::BufferUsageFlags,
+    _usage: vk::BufferUsageFlags,
 }
 
 impl<T: Sized> Buffer<T> {
@@ -112,7 +112,7 @@ impl<T: Sized> Buffer<T> {
             device_memory,
             memory_address: std::ptr::NonNull::new_unchecked(memory_address),
             descriptor_set: vk::DescriptorSet::null(),
-            usage,
+            _usage: usage,
             _phantom: PhantomData,
         }
     }
