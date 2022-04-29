@@ -84,7 +84,7 @@ fn main() {
 
             winit::event::Event::MainEventsCleared => unsafe {
                 context.render(&selected_pipeline, &globals);
-                std::thread::sleep(std::time::Duration::from_millis(16));
+                std::thread::sleep(std::time::Duration::from_millis(5));
             },
             _ => {}
         }

@@ -809,7 +809,7 @@ unsafe fn get_device(instance: &ash::Instance) -> (vk::PhysicalDevice, ash::Devi
         .drain(..)
         .find_map(|physical_device| {
             let physical_properties = instance.get_physical_device_properties(physical_device);
-            if physical_properties.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU {
+            if physical_properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
                 return None;
             }
             instance
