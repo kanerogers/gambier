@@ -652,7 +652,7 @@ unsafe fn create_pipeline(
         .height(swapchain.resolution.height as _)
         .width(swapchain.resolution.width as _)
         .min_depth(0.)
-        .max_depth(0.);
+        .max_depth(1.);
 
     let scissor = swapchain.resolution.into();
 
@@ -671,7 +671,7 @@ unsafe fn create_pipeline(
         .rasterization_state(&rasterization_state)
         .multisample_state(&multisample_state)
         .color_blend_state(&color_blend_state)
-        .depth_stencil_state(&depth_state_info)
+        // .depth_stencil_state(&depth_state_info)
         .render_pass(*render_pass)
         .layout(pipeline_layout)
         .stages(&shader_stages);

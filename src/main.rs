@@ -1,7 +1,9 @@
 pub mod buffer;
 pub mod vulkan_context;
 
-use nalgebra_glm::{mat4, tan, vec3, TMat4};
+use std::time::Instant;
+
+use nalgebra_glm as glm;
 use vulkan_context::{Globals, SelectedPipeline, VulkanContext};
 use winit::{
     event::{VirtualKeyCode, WindowEvent},
@@ -20,6 +22,7 @@ fn main() {
     let projection = create_projection_matrix();
     let view = update_camera(camera_y_rot, &camera_pos);
     let mut globals = Globals { projection, view };
+    let mut last_frame_time = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -35,19 +38,23 @@ fn main() {
                 ..
             } => {
                 if input.state == winit::event::ElementState::Pressed {
+                    let delta_time = (Instant::now() - last_frame_time).as_secs_f32();
+                    let displacement = (100 / 1) as f32 * delta_time;
                     match input.virtual_keycode {
                         Some(VirtualKeyCode::Key1) => {
                             selected_pipeline = SelectedPipeline::Colored;
                         }
                         Some(VirtualKeyCode::W) => {
-                            let delta =
-                                nalgebra_glm::rotate_y_vec3(&vec3(0., 0., 0.1), camera_y_rot);
+                            let delta = nalgebra_glm::rotate_y_vec3(
+                                &glm::vec3(0., 0., -displacement),
+                                camera_y_rot,
+                            );
                             camera_pos += delta;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
                         Some(VirtualKeyCode::S) => {
                             let delta = nalgebra_glm::rotate_y_vec3(
-                                &nalgebra_glm::vec3(0., 0., -0.1),
+                                &nalgebra_glm::vec3(0., 0., displacement),
                                 camera_y_rot,
                             );
                             camera_pos += delta;
@@ -55,7 +62,7 @@ fn main() {
                         }
                         Some(VirtualKeyCode::A) => {
                             let delta = nalgebra_glm::rotate_y_vec3(
-                                &nalgebra_glm::vec3(-0.1, 0., 0.),
+                                &nalgebra_glm::vec3(displacement, 0., 0.),
                                 camera_y_rot,
                             );
                             camera_pos += delta;
@@ -63,18 +70,18 @@ fn main() {
                         }
                         Some(VirtualKeyCode::D) => {
                             let delta = nalgebra_glm::rotate_y_vec3(
-                                &nalgebra_glm::vec3(0.1, 0., 0.),
+                                &nalgebra_glm::vec3(-displacement, 0., 0.),
                                 camera_y_rot,
                             );
                             camera_pos += delta;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
                         Some(VirtualKeyCode::Q) => {
-                            camera_y_rot -= 0.01;
+                            camera_y_rot -= displacement;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
                         Some(VirtualKeyCode::E) => {
-                            camera_y_rot += 0.01;
+                            camera_y_rot += displacement;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
                         _ => {}
@@ -84,14 +91,15 @@ fn main() {
 
             winit::event::Event::MainEventsCleared => unsafe {
                 context.render(&selected_pipeline, &globals);
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                last_frame_time = Instant::now();
             },
             _ => {}
         }
     });
 }
 
-fn create_projection_matrix() -> TMat4<f32> {
+#[allow(unused)]
+fn create_projection_matrix() -> glm::TMat4<f32> {
     let aspect_ratio = 800. / 600.;
     let fov_y = 70_f32.to_radians();
     let f = 1.0 / (fov_y / 2.0).tan();
@@ -101,7 +109,7 @@ fn create_projection_matrix() -> TMat4<f32> {
     let niagra = nalgebra_glm::mat4(
         f / aspect_ratio, 0.0, 0.0, 0.0,
         0.0, f, 0.0, 0.0,
-        0.0, 0.0, 0., 1.0,
+        0.0, 0.0, 0., -1.0,
         0.0, 0.0, z_near, 0.0,
     );
 
@@ -111,19 +119,24 @@ fn create_projection_matrix() -> TMat4<f32> {
     let n = z_near;
     let x = focal_length / aspect_ratio;
     let y = -focal_length;
-    let A = n / (f - n);
-    let B = f * A;
+    let a = n / (f - n);
+    let b = f * a;
 
     #[rustfmt::skip]
     let vulkan = nalgebra_glm::mat4(
         x, 0.0, 0.0, 0.0,
         0.0, y, 0.0, 0.0,
-        0.0, 0.0, A, B, 
+        0.0, 0.0, a, b, 
         0.0, 0.0, -1.0, 0.0,
     );
 
-    niagra
+    // NOTE: Requires depth testing to be configured as per vkguide - NOT niagra.
+    let mut vulkan_guide = glm::perspective(fov_y, aspect_ratio, 0.1, 200.0);
+    vulkan_guide.m11 *= -1.; // inverse Y for Vulkan
+
+    // niagra
     // vulkan
+    vulkan_guide
 }
 
 fn update_camera(camera_y_rot: f32, camera_pos: &nalgebra_glm::Vec3) -> nalgebra_glm::TMat4<f32> {
