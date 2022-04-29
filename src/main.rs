@@ -1,4 +1,8 @@
 pub mod buffer;
+pub mod image;
+pub mod model;
+pub mod swapchain;
+pub mod sync_structures;
 pub mod vulkan_context;
 
 use std::time::Instant;

@@ -1,7 +1,9 @@
-use ash::{
-    extensions::khr::{Surface as SurfaceLoader, Swapchain as SwapchainLoader},
-    vk,
+use crate::{
+    model::{import_model, Vertex},
+    swapchain::Swapchain,
+    sync_structures::SyncStructures,
 };
+use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
 use nalgebra_glm::TMat4x4;
 use std::ffi::{CStr, CString};
 use vk_shader_macros::include_glsl;
@@ -23,87 +25,11 @@ impl Default for SelectedPipeline {
     }
 }
 
-pub struct VertexInputDescription {
-    bindings: Vec<vk::VertexInputBindingDescription>,
-    attributes: Vec<vk::VertexInputAttributeDescription>,
-}
-
-#[repr(C, align(16))]
-#[derive(Debug, Clone)]
-pub struct Vertex {
-    vx: f32,
-    vy: f32,
-    vz: f32,
-    r: f32,
-    g: f32,
-    b: f32,
-}
-
 #[repr(C, align(16))]
 #[derive(Debug, Clone)]
 pub struct Globals {
     pub projection: TMat4x4<f32>,
     pub view: TMat4x4<f32>,
-}
-
-impl Vertex {
-    pub fn description() -> VertexInputDescription {
-        VertexInputDescription {
-            bindings: vec![vk::VertexInputBindingDescription {
-                binding: 0,
-                stride: std::mem::size_of::<Vertex>() as _,
-                input_rate: vk::VertexInputRate::VERTEX,
-            }],
-            attributes: vec![
-                vk::VertexInputAttributeDescription {
-                    location: 0,
-                    binding: 0,
-                    format: vk::Format::R32G32B32_SFLOAT,
-                    offset: 0,
-                },
-                vk::VertexInputAttributeDescription {
-                    location: 1,
-                    binding: 0,
-                    format: vk::Format::R32G32B32_SFLOAT,
-                    offset: (std::mem::size_of::<f32>() * 3) as u32,
-                },
-            ],
-        }
-    }
-
-    fn new(vx: f32, vy: f32, vz: f32) -> Self {
-        Self {
-            vx,
-            vy,
-            vz,
-            ..Default::default()
-        }
-    }
-
-    fn new_coloured(vx: f32, vy: f32, vz: f32, r: f32, g: f32, b: f32) -> Self {
-        Self {
-            vx,
-            vy,
-            vz,
-            r,
-            g,
-            b,
-            ..Default::default()
-        }
-    }
-}
-
-impl Default for Vertex {
-    fn default() -> Self {
-        Self {
-            vx: 0.,
-            vy: 0.,
-            vz: 0.,
-            r: 1.,
-            g: 1.,
-            b: 1.,
-        }
-    }
 }
 
 pub struct VulkanContext {
@@ -135,8 +61,7 @@ impl VulkanContext {
             let (physical_device, device, queue_family_index) = get_device(&instance);
             let present_queue = device.get_device_queue(queue_family_index, 0);
             let swapchain = Swapchain::new(&entry, &instance, window, physical_device, &device);
-            let (swapchain_images, swapchain_image_views) =
-                create_swapchain_image_views(&device, &swapchain);
+            let (swapchain_images, swapchain_image_views) = swapchain.create_image_views(&device);
 
             let command_pool = create_command_pool(&device, queue_family_index);
             let command_buffer = create_command_buffer(&device, command_pool);
@@ -323,94 +248,6 @@ impl VulkanContext {
     }
 }
 
-fn import_model(
-    device: &ash::Device,
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    descriptor_pool: vk::DescriptorPool,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-) -> (Buffer<Vertex>, Buffer<u32>) {
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
-
-    let (gltf, buffers, _images) = gltf::import("assets/box.gltf").unwrap();
-
-    for scene in gltf.scenes() {
-        for node in scene.nodes() {
-            import_node(node, &mut indices, &mut vertices, &buffers);
-        }
-    }
-
-    let vertex_buffer = unsafe {
-        Buffer::new(
-            device,
-            instance,
-            &physical_device,
-            &descriptor_pool,
-            &descriptor_set_layout,
-            &vertices,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-        )
-    };
-
-    let index_buffer = unsafe {
-        Buffer::new(
-            device,
-            instance,
-            &physical_device,
-            &descriptor_pool,
-            &descriptor_set_layout,
-            &indices,
-            vk::BufferUsageFlags::INDEX_BUFFER,
-        )
-    };
-
-    (vertex_buffer, index_buffer)
-}
-
-fn import_node(
-    node: gltf::Node,
-    indices: &mut Vec<u32>,
-    vertices: &mut Vec<Vertex>,
-    blob: &[gltf::buffer::Data],
-) {
-    if let Some(mesh) = node.mesh() {
-        for primitive in mesh.primitives() {
-            let reader = primitive.reader(|b| Some(&blob[b.index()]));
-            for i in reader.read_indices().unwrap().into_u32() {
-                indices.push(i);
-            }
-
-            for position in reader.read_positions().unwrap() {
-                vertices.push(Vertex::new(position[0], position[1], position[2]));
-            }
-
-            if let Some(colours) = reader.read_colors(0) {
-                for (colour, position) in
-                    colours.into_rgb_f32().zip(reader.read_positions().unwrap())
-                {
-                    vertices.push(Vertex::new_coloured(
-                        position[0],
-                        position[1],
-                        position[2],
-                        colour[0],
-                        colour[1],
-                        colour[2],
-                    ));
-                }
-            } else {
-                for position in reader.read_positions().unwrap() {
-                    vertices.push(Vertex::new(position[0], position[1], position[2]));
-                }
-            }
-        }
-    }
-
-    for node in node.children() {
-        import_node(node, indices, vertices, blob);
-    }
-}
-
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
     let pool_sizes = [vk::DescriptorPoolSize {
         ty: vk::DescriptorType::STORAGE_BUFFER,
@@ -513,88 +350,6 @@ unsafe fn init(window: &Window) -> (ash::Entry, ash::Instance) {
         )
         .unwrap();
     (entry, instance)
-}
-
-pub struct Swapchain {
-    pub loader: SwapchainLoader,
-    pub swapchain: vk::SwapchainKHR,
-    pub format: vk::Format,
-    pub resolution: vk::Extent2D,
-}
-
-impl Swapchain {
-    unsafe fn new(
-        entry: &ash::Entry,
-        instance: &ash::Instance,
-        window: &Window,
-        physical_device: vk::PhysicalDevice,
-        device: &ash::Device,
-    ) -> Self {
-        let surface_loader = SurfaceLoader::new(entry, instance);
-        let surface = ash_window::create_surface(entry, instance, window, None).unwrap();
-
-        let surface_capabilities = surface_loader
-            .get_physical_device_surface_capabilities(physical_device, surface)
-            .unwrap();
-        let format = surface_loader
-            .get_physical_device_surface_formats(physical_device, surface)
-            .unwrap()[0]
-            .format;
-
-        let swapchain_loader = SwapchainLoader::new(instance, device);
-        let swapchain = swapchain_loader
-            .create_swapchain(
-                &vk::SwapchainCreateInfoKHR::builder()
-                    .image_array_layers(1)
-                    .image_extent(surface_capabilities.current_extent)
-                    .pre_transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
-                    .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-                    .image_format(format)
-                    .surface(surface)
-                    .min_image_count(3)
-                    .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT),
-                None,
-            )
-            .unwrap();
-
-        Self {
-            loader: swapchain_loader,
-            swapchain,
-            format,
-            resolution: surface_capabilities.current_extent,
-        }
-    }
-}
-
-pub struct SyncStructures {
-    pub present_semaphore: vk::Semaphore,
-    pub render_semaphore: vk::Semaphore,
-    pub render_fence: vk::Fence,
-}
-
-impl SyncStructures {
-    pub fn new(device: &ash::Device) -> Self {
-        unsafe {
-            let render_fence = device
-                .create_fence(
-                    &vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED),
-                    None,
-                )
-                .unwrap();
-            let present_semaphore = device
-                .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
-                .unwrap();
-            let render_semaphore = device
-                .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
-                .unwrap();
-
-            Self {
-                present_semaphore,
-                render_semaphore,
-                render_fence,
-            }
-        }
-    }
 }
 
 unsafe fn create_pipeline(
@@ -709,45 +464,6 @@ fn create_framebuffers(
             }
         })
         .collect()
-}
-
-unsafe fn create_swapchain_image_views(
-    device: &ash::Device,
-    swapchain: &Swapchain,
-) -> (Vec<vk::Image>, Vec<vk::ImageView>) {
-    let swapchain_images = swapchain
-        .loader
-        .get_swapchain_images(swapchain.swapchain)
-        .unwrap();
-    let swapchain_image_views = swapchain_images
-        .iter()
-        .map(|i| {
-            device
-                .create_image_view(
-                    &vk::ImageViewCreateInfo::builder()
-                        .view_type(vk::ImageViewType::TYPE_2D)
-                        .components(vk::ComponentMapping {
-                            r: vk::ComponentSwizzle::R,
-                            g: vk::ComponentSwizzle::G,
-                            b: vk::ComponentSwizzle::B,
-                            a: vk::ComponentSwizzle::A,
-                        })
-                        .subresource_range(vk::ImageSubresourceRange {
-                            aspect_mask: vk::ImageAspectFlags::COLOR,
-                            base_mip_level: 0,
-                            level_count: 1,
-                            base_array_layer: 0,
-                            layer_count: 1,
-                        })
-                        .image(*i)
-                        .format(swapchain.format),
-                    None,
-                )
-                .unwrap()
-        })
-        .collect();
-
-    (swapchain_images, swapchain_image_views)
 }
 
 unsafe fn create_render_pass(device: &ash::Device, swapchain: &Swapchain) -> vk::RenderPass {
