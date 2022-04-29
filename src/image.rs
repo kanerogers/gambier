@@ -1,9 +1,10 @@
 use ash::{vk, Device, Instance};
 
-use crate::buffer::Buffer;
+pub static DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 pub struct Image {
-    pub buffer: Buffer<u8>,
+    image: vk::Image,
+    image_view: vk::ImageView,
 }
 
 impl Image {
@@ -13,18 +14,22 @@ impl Image {
         physical_device: vk::PhysicalDevice,
         descriptor_pool: vk::DescriptorPool,
         descriptor_set_layout: vk::DescriptorSetLayout,
+        format: vk::Format,
+        usage: vk::ImageUsageFlags,
+        extent: vk::Extent3D,
     ) -> Self {
-        // TODO: I can't remember if images have buffers or not!
-        let buffer = Buffer::new(
-            device,
-            instance,
-            physical_device,
-            descriptor_pool,
-            descriptor_set_layout,
-            &[],
-            vk::BufferUsageFlags::STORAGE_BUFFER,
-        );
-
-        Self { buffer }
+        let image = device
+            .create_image(
+                &vk::ImageCreateInfo::builder()
+                    .format(format)
+                    .usage(usage)
+                    .extent(extent),
+                None,
+            )
+            .unwrap();
+        let image_view = device
+            .create_image_view(&vk::ImageViewCreateInfo::builder().image(image), None)
+            .unwrap();
+        Self { image, image_view }
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    image::Image,
+    image::{Image, DEPTH_FORMAT},
     model::{import_model, Vertex},
     swapchain::Swapchain,
     sync_structures::SyncStructures,
@@ -93,12 +93,20 @@ impl VulkanContext {
                 descriptor_set_layout,
             );
 
+            let depth_extent = vk::Extent3D {
+                width: swapchain.resolution.width,
+                height: swapchain.resolution.height,
+                depth: 1,
+            };
             let depth_image = Image::new(
                 &device,
                 &instance,
                 physical_device,
                 descriptor_pool,
                 descriptor_set_layout,
+                DEPTH_FORMAT,
+                vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+                depth_extent,
             );
 
             Self {

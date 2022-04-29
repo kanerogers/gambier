@@ -2,19 +2,7 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "cargo",
-			"command": "run",
-			"env": {
-				"RUST_BACKTRACE": "1",
-			},
-			"problemMatcher": [
-				"$rustc"
-			],
-			"label": "rust: cargo run",
-			"group": {
-				"kind": "test",
-				"isDefault": true
-			}
+			"type": "cpp",
 		}
 	]
 }
