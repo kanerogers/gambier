@@ -17,9 +17,9 @@ impl<T: Sized> Buffer<T> {
     pub unsafe fn new(
         device: &Device,
         instance: &Instance,
-        physical_device: &vk::PhysicalDevice,
-        descriptor_pool: &vk::DescriptorPool,
-        descriptor_set_layout: &vk::DescriptorSetLayout,
+        physical_device: vk::PhysicalDevice,
+        descriptor_pool: vk::DescriptorPool,
+        descriptor_set_layout: vk::DescriptorSetLayout,
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
     ) -> Buffer<T> {
@@ -36,7 +36,7 @@ impl<T: Sized> Buffer<T> {
         // Allocate memory
         let memory_requirements = device.get_buffer_memory_requirements(buffer);
         let memory_type_bits = memory_requirements.memory_type_bits;
-        let memory_properties = instance.get_physical_device_memory_properties(*physical_device);
+        let memory_properties = instance.get_physical_device_memory_properties(physical_device);
 
         let mut memory_type_index = !0;
         for i in 0..memory_properties.memory_type_count as usize {
@@ -90,8 +90,8 @@ impl<T: Sized> Buffer<T> {
             let descriptor_set = device
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::builder()
-                        .descriptor_pool(*descriptor_pool)
-                        .set_layouts(&[*descriptor_set_layout]),
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(&[descriptor_set_layout]),
                 )
                 .unwrap()[0];
 

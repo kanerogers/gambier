@@ -1,4 +1,5 @@
 use crate::{
+    image::Image,
     model::{import_model, Vertex},
     swapchain::Swapchain,
     sync_structures::SyncStructures,
@@ -52,6 +53,7 @@ pub struct VulkanContext {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
+    pub depth_image: Image,
 }
 
 impl VulkanContext {
@@ -91,6 +93,14 @@ impl VulkanContext {
                 descriptor_set_layout,
             );
 
+            let depth_image = Image::new(
+                &device,
+                &instance,
+                physical_device,
+                descriptor_pool,
+                descriptor_set_layout,
+            );
+
             Self {
                 entry,
                 instance,
@@ -111,6 +121,7 @@ impl VulkanContext {
                 descriptor_set_layout,
                 descriptor_pool,
                 pipeline_layout,
+                depth_image,
             }
         }
     }

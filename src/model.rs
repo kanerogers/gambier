@@ -24,9 +24,9 @@ pub fn import_model(
         Buffer::new(
             device,
             instance,
-            &physical_device,
-            &descriptor_pool,
-            &descriptor_set_layout,
+            physical_device,
+            descriptor_pool,
+            descriptor_set_layout,
             &vertices,
             vk::BufferUsageFlags::VERTEX_BUFFER,
         )
@@ -36,9 +36,9 @@ pub fn import_model(
         Buffer::new(
             device,
             instance,
-            &physical_device,
-            &descriptor_pool,
-            &descriptor_set_layout,
+            physical_device,
+            descriptor_pool,
+            descriptor_set_layout,
             &indices,
             vk::BufferUsageFlags::INDEX_BUFFER,
         )
