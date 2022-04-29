@@ -625,7 +625,8 @@ unsafe fn create_pipeline(
         .alpha_to_coverage_enable(false)
         .alpha_to_one_enable(false);
 
-    let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
+    // TODO: Revisit.
+    let _depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
         depth_test_enable: 1,
         depth_write_enable: 1,
         depth_compare_op: vk::CompareOp::GREATER,
@@ -664,6 +665,7 @@ unsafe fn create_pipeline(
     // let dynamic_state =
     //     &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
 
+    // TODO: Understand depth stencil state better - I always muck this up.
     let create_infos = vk::GraphicsPipelineCreateInfo::builder()
         .vertex_input_state(&vertex_input_state)
         .input_assembly_state(&input_assembly)
