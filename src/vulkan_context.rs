@@ -1,6 +1,6 @@
 use crate::{
     image::{Image, DEPTH_FORMAT},
-    model::{import_model, Vertex},
+    model::{import_models, Model, Vertex},
     swapchain::Swapchain,
     sync_structures::SyncStructures,
 };
@@ -31,6 +31,7 @@ impl Default for SelectedPipeline {
 pub struct Globals {
     pub projection: TMat4x4<f32>,
     pub view: TMat4x4<f32>,
+    pub model: TMat4x4<f32>,
 }
 
 pub struct VulkanContext {
@@ -54,6 +55,7 @@ pub struct VulkanContext {
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
     pub depth_image: Image,
+    pub models: Vec<Model>,
 }
 
 impl VulkanContext {
@@ -103,7 +105,7 @@ impl VulkanContext {
             );
             let descriptor_pool = create_descriptor_pool(&device);
 
-            let (vertex_buffer, index_buffer) = import_model(
+            let (vertex_buffer, index_buffer, models) = import_models(
                 &device,
                 &instance,
                 physical_device,
@@ -132,11 +134,12 @@ impl VulkanContext {
                 descriptor_pool,
                 pipeline_layout,
                 depth_image,
+                models,
             }
         }
     }
 
-    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline, globals: &Globals) {
+    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline, globals: &mut Globals) {
         let render_fence = &self.sync_structures.render_fence;
         let present_semaphore = &self.sync_structures.present_semaphore;
         let render_semaphore = &self.sync_structures.render_semaphore;
@@ -231,15 +234,27 @@ impl VulkanContext {
             std::slice::from_ref(&vertex_buffer.buffer),
             &[0],
         );
-        device.cmd_push_constants(
-            command_buffer,
-            pipeline_layout,
-            vk::ShaderStageFlags::VERTEX,
-            0,
-            global_push_constant,
-        );
 
-        device.cmd_draw_indexed(command_buffer, index_buffer.len as _, 1, 0, 0, 0);
+        for model in &self.models {
+            for primitive in &model.mesh.primitives {
+                globals.model = model.transform;
+                device.cmd_push_constants(
+                    command_buffer,
+                    pipeline_layout,
+                    vk::ShaderStageFlags::VERTEX,
+                    0,
+                    global_push_constant,
+                );
+                device.cmd_draw_indexed(
+                    command_buffer,
+                    primitive.num_indices as _,
+                    1,
+                    primitive.offset,
+                    0,
+                    0,
+                );
+            }
+        }
 
         device.cmd_end_render_pass(command_buffer);
         device.end_command_buffer(command_buffer).unwrap();

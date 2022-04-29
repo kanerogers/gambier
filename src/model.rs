@@ -1,22 +1,63 @@
 use ash::vk;
+use nalgebra_glm::TMat4;
 
 use crate::buffer::Buffer;
 
-pub fn import_model(
+pub struct Model {
+    pub name: String,
+    pub transform: nalgebra_glm::TMat4<f32>,
+    pub mesh: Mesh,
+}
+
+impl Model {
+    pub fn new(
+        name: String,
+        transform: nalgebra_glm::TMat4<f32>,
+        primitives: Vec<Primitive>,
+    ) -> Self {
+        let mesh = Mesh { primitives };
+        Self {
+            name,
+            transform,
+            mesh,
+        }
+    }
+}
+
+pub struct Mesh {
+    pub primitives: Vec<Primitive>,
+}
+
+pub struct Primitive {
+    pub offset: u32,
+    pub num_indices: u32,
+}
+
+pub fn import_models(
     device: &ash::Device,
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     descriptor_pool: vk::DescriptorPool,
     descriptor_set_layout: vk::DescriptorSetLayout,
-) -> (Buffer<Vertex>, Buffer<u32>) {
+) -> (Buffer<Vertex>, Buffer<u32>, Vec<Model>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
-    let (gltf, buffers, _images) = gltf::import("assets/box.gltf").unwrap();
+    let (gltf, buffers, _images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
+    let mut models = Vec::new();
+    let mut index_offset = 0;
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
-            import_node(node, &mut indices, &mut vertices, &buffers);
+            import_node(
+                node,
+                &mut indices,
+                &mut vertices,
+                &buffers,
+                &mut models,
+                &mut index_offset,
+                &nalgebra_glm::identity(),
+            );
         }
     }
 
@@ -44,7 +85,7 @@ pub fn import_model(
         )
     };
 
-    (vertex_buffer, index_buffer)
+    (vertex_buffer, index_buffer, models)
 }
 
 fn import_node(
@@ -52,8 +93,21 @@ fn import_node(
     indices: &mut Vec<u32>,
     vertices: &mut Vec<Vertex>,
     blob: &[gltf::buffer::Data],
+    models: &mut Vec<Model>,
+    offset: &mut u32,
+    parent_transform: &nalgebra_glm::TMat4<f32>,
 ) {
+    let local_transform: TMat4<f32> = node.transform().matrix().into();
     if let Some(mesh) = node.mesh() {
+        let mut primitives = Vec::new();
+        let transform = parent_transform * &local_transform;
+
+        let name = if let Some(name) = node.name() {
+            name.to_string()
+        } else {
+            format!("Node {}", node.index())
+        };
+
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|b| Some(&blob[b.index()]));
             for i in reader.read_indices().unwrap().into_u32() {
@@ -82,11 +136,29 @@ fn import_node(
                     vertices.push(Vertex::new(position[0], position[1], position[2]));
                 }
             }
+
+            let num_indices = indices.len() as _;
+            primitives.push(Primitive {
+                offset: *offset as _,
+                num_indices,
+            });
+
+            *offset += num_indices;
         }
+
+        models.push(Model::new(name, transform, primitives));
     }
 
     for node in node.children() {
-        import_node(node, indices, vertices, blob);
+        import_node(
+            node,
+            indices,
+            vertices,
+            blob,
+            models,
+            offset,
+            &local_transform,
+        );
     }
 }
 

@@ -26,7 +26,12 @@ fn main() {
 
     let projection = create_projection_matrix();
     let view = update_camera(camera_y_rot, &camera_pos);
-    let mut globals = Globals { projection, view };
+    let model = glm::identity();
+    let mut globals = Globals {
+        projection,
+        view,
+        model,
+    };
     let mut last_frame_time = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
@@ -95,7 +100,7 @@ fn main() {
             }
 
             winit::event::Event::MainEventsCleared => unsafe {
-                context.render(&selected_pipeline, &globals);
+                context.render(&selected_pipeline, &mut globals);
                 last_frame_time = Instant::now();
             },
             _ => {}

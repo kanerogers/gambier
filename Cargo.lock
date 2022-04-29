@@ -3,18 +3,6 @@
 version = 3
 
 [[package]]
-name = "Gambier"
-version = "0.1.0"
-dependencies = [
- "ash",
- "ash-window",
- "gltf",
- "nalgebra-glm",
- "vk-shader-macros",
- "winit",
-]
-
-[[package]]
 name = "adler32"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -348,6 +336,18 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+
+[[package]]
+name = "gambier"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "ash-window",
+ "gltf",
+ "nalgebra-glm",
+ "vk-shader-macros",
+ "winit",
+]
 
 [[package]]
 name = "gltf"
