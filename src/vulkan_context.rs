@@ -1,7 +1,11 @@
-use ash::{
-    extensions::khr::{Surface as SurfaceLoader, Swapchain as SwapchainLoader},
-    vk,
+use crate::{
+    image::{Image, DEPTH_FORMAT},
+    model::{import_models, Model, Vertex},
+    swapchain::Swapchain,
+    sync_structures::SyncStructures,
 };
+use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
+use nalgebra_glm::TMat4x4;
 use std::ffi::{CStr, CString};
 use vk_shader_macros::include_glsl;
 use winit::window::Window;
@@ -22,41 +26,12 @@ impl Default for SelectedPipeline {
     }
 }
 
-pub struct VertexInputDescription {
-    bindings: Vec<vk::VertexInputBindingDescription>,
-    attributes: Vec<vk::VertexInputAttributeDescription>,
-}
-
-#[repr(C)]
-pub struct Vertex {
-    vx: f32,
-    vy: f32,
-    vz: f32,
-    vw: f32,
-}
-
-impl Vertex {
-    pub fn description() -> VertexInputDescription {
-        VertexInputDescription {
-            bindings: vec![vk::VertexInputBindingDescription {
-                binding: 0,
-                stride: std::mem::size_of::<Vertex>() as _,
-                input_rate: vk::VertexInputRate::VERTEX,
-            }],
-            attributes: vec![vk::VertexInputAttributeDescription {
-                location: 0,
-                binding: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: 0,
-            }],
-        }
-    }
-}
-
-impl Vertex {
-    fn new(vx: f32, vy: f32, vz: f32) -> Self {
-        Self { vx, vy, vz, vw: 1. }
-    }
+#[repr(C, align(16))]
+#[derive(Debug, Clone)]
+pub struct Globals {
+    pub projection: TMat4x4<f32>,
+    pub view: TMat4x4<f32>,
+    pub model: TMat4x4<f32>,
 }
 
 pub struct VulkanContext {
@@ -75,9 +50,12 @@ pub struct VulkanContext {
     pub present_queue: vk::Queue,
     pub colored_pipeline: vk::Pipeline,
     pub vertex_buffer: Buffer<Vertex>,
+    pub index_buffer: Buffer<u32>,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
+    pub depth_image: Image,
+    pub models: Vec<Model>,
 }
 
 impl VulkanContext {
@@ -87,14 +65,24 @@ impl VulkanContext {
             let (physical_device, device, queue_family_index) = get_device(&instance);
             let present_queue = device.get_device_queue(queue_family_index, 0);
             let swapchain = Swapchain::new(&entry, &instance, window, physical_device, &device);
-            let (swapchain_images, swapchain_image_views) =
-                create_swapchain_image_views(&device, &swapchain);
+            let (swapchain_images, swapchain_image_views) = swapchain.create_image_views(&device);
+            let depth_extent = vk::Extent3D {
+                width: swapchain.resolution.width,
+                height: swapchain.resolution.height,
+                depth: 1,
+            };
+            let depth_image = Image::new(
+                &device,
+                &instance,
+                physical_device,
+                DEPTH_FORMAT,
+                vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+                depth_extent,
+            );
 
             let command_pool = create_command_pool(&device, queue_family_index);
             let command_buffer = create_command_buffer(&device, command_pool);
             let render_pass = create_render_pass(&device, &swapchain);
-            let framebuffers =
-                create_framebuffers(&device, &swapchain, &swapchain_image_views, &render_pass);
             let sync_structures = SyncStructures::new(&device);
             let (descriptor_set_layout, pipeline_layout) = create_descriptor_layouts(&device);
 
@@ -108,9 +96,16 @@ impl VulkanContext {
             );
 
             // Resources
+            let framebuffers = create_framebuffers(
+                &device,
+                &swapchain,
+                &swapchain_image_views,
+                depth_image.view,
+                &render_pass,
+            );
             let descriptor_pool = create_descriptor_pool(&device);
 
-            let vertex_buffer = fun_name(
+            let (vertex_buffer, index_buffer, models) = import_models(
                 &device,
                 &instance,
                 physical_device,
@@ -134,28 +129,39 @@ impl VulkanContext {
                 colored_pipeline,
                 present_queue,
                 vertex_buffer,
+                index_buffer,
                 descriptor_set_layout,
                 descriptor_pool,
                 pipeline_layout,
+                depth_image,
+                models,
             }
         }
     }
 
-    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline) {
+    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline, globals: &mut Globals) {
         let render_fence = &self.sync_structures.render_fence;
         let present_semaphore = &self.sync_structures.present_semaphore;
         let render_semaphore = &self.sync_structures.render_semaphore;
         let command_buffer = self.command_buffer;
         let device = &self.device;
         let swapchain = &self.swapchain;
-        let render_pass = &self.render_pass;
+        let render_pass = self.render_pass;
         let framebuffers = &self.framebuffers;
         let pipeline = match selected_pipeline {
             SelectedPipeline::Colored => &self.colored_pipeline,
         };
 
+        let index_buffer = &self.index_buffer;
+        let vertex_buffer = &self.vertex_buffer;
+
         let pipeline_layout = self.pipeline_layout;
-        let descriptor_sets = [self.vertex_buffer.descriptor_set];
+        let _descriptor_sets = [self.vertex_buffer.descriptor_set];
+
+        let global_push_constant = std::slice::from_raw_parts(
+            (globals as *const Globals) as *const u8,
+            std::mem::size_of::<Globals>(),
+        );
 
         device
             .wait_for_fences(std::slice::from_ref(render_fence), true, 1000000000)
@@ -197,7 +203,7 @@ impl VulkanContext {
             },
         ];
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(*render_pass)
+            .render_pass(render_pass)
             .framebuffer(framebuffers[swapchain_image_index as usize])
             .render_area(swapchain.resolution.into())
             .clear_values(&clear_values);
@@ -216,11 +222,44 @@ impl VulkanContext {
         //     &descriptor_sets,
         //     &[],
         // );
-        device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
+        device.cmd_bind_index_buffer(
+            command_buffer,
+            self.index_buffer.buffer,
+            0,
+            vk::IndexType::UINT32,
+        );
+        device.cmd_bind_vertex_buffers(
+            command_buffer,
+            0,
+            std::slice::from_ref(&vertex_buffer.buffer),
+            &[0],
+        );
 
-        device.cmd_draw(command_buffer, 6, 1, 0, 0);
+        for model in &self.models {
+            for primitive in &model.mesh.primitives {
+                globals.model = model.transform;
+                device.cmd_push_constants(
+                    command_buffer,
+                    pipeline_layout,
+                    vk::ShaderStageFlags::VERTEX,
+                    0,
+                    global_push_constant,
+                );
+                device.cmd_draw_indexed(
+                    command_buffer,
+                    primitive.num_indices,
+                    1,
+                    primitive.index_offset,
+                    primitive.vertex_offset as _,
+                    0,
+                );
+            }
+        }
+
         device.cmd_end_render_pass(command_buffer);
         device.end_command_buffer(command_buffer).unwrap();
+
+        // Submit
         let submit_info = vk::SubmitInfo::builder()
             .command_buffers(std::slice::from_ref(&command_buffer))
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
@@ -243,33 +282,6 @@ impl VulkanContext {
             .queue_present(self.present_queue, &present_info)
             .unwrap();
     }
-}
-
-fn fun_name(
-    device: &ash::Device,
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    descriptor_pool: vk::DescriptorPool,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-) -> Buffer<Vertex> {
-    let vertices = [
-        Vertex::new(-1., -1., 0.),
-        Vertex::new(1., -1., 0.),
-        Vertex::new(1., 1., 0.),
-        Vertex::new(-1., 1., 0.),
-    ];
-    let vertex_buffer = unsafe {
-        Buffer::new(
-            device,
-            instance,
-            &physical_device,
-            &descriptor_pool,
-            &descriptor_set_layout,
-            &vertices,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-        )
-    };
-    vertex_buffer
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
@@ -297,6 +309,7 @@ unsafe fn create_descriptor_layouts(
         descriptor_count: 1,
         ..Default::default()
     }];
+
     let descriptor_set_layout = device
         .create_descriptor_set_layout(
             &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
@@ -306,7 +319,14 @@ unsafe fn create_descriptor_layouts(
 
     let pipeline_layout = device
         .create_pipeline_layout(
-            &vk::PipelineLayoutCreateInfo::builder().set_layouts(&[descriptor_set_layout]),
+            &vk::PipelineLayoutCreateInfo::builder()
+                .set_layouts(&[descriptor_set_layout])
+                .push_constant_ranges(&[vk::PushConstantRange {
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    offset: 0,
+                    size: std::mem::size_of::<Globals>() as _,
+                    ..Default::default()
+                }]),
             None,
         )
         .unwrap();
@@ -360,94 +380,12 @@ unsafe fn init(window: &Window) -> (ash::Entry, ash::Instance) {
                     &vk::ApplicationInfo::builder()
                         .api_version(vk::make_api_version(0, 1, 3, 0))
                         .engine_name(&CString::new("Gambier").unwrap())
-                        .application_name(&CString::new("VKHex").unwrap()),
+                        .application_name(&CString::new("Gambier Test").unwrap()),
                 ),
             None,
         )
         .unwrap();
     (entry, instance)
-}
-
-pub struct Swapchain {
-    pub loader: SwapchainLoader,
-    pub swapchain: vk::SwapchainKHR,
-    pub format: vk::Format,
-    pub resolution: vk::Extent2D,
-}
-
-impl Swapchain {
-    unsafe fn new(
-        entry: &ash::Entry,
-        instance: &ash::Instance,
-        window: &Window,
-        physical_device: vk::PhysicalDevice,
-        device: &ash::Device,
-    ) -> Self {
-        let surface_loader = SurfaceLoader::new(entry, instance);
-        let surface = ash_window::create_surface(entry, instance, window, None).unwrap();
-
-        let surface_capabilities = surface_loader
-            .get_physical_device_surface_capabilities(physical_device, surface)
-            .unwrap();
-        let format = surface_loader
-            .get_physical_device_surface_formats(physical_device, surface)
-            .unwrap()[0]
-            .format;
-
-        let swapchain_loader = SwapchainLoader::new(instance, device);
-        let swapchain = swapchain_loader
-            .create_swapchain(
-                &vk::SwapchainCreateInfoKHR::builder()
-                    .image_array_layers(1)
-                    .image_extent(surface_capabilities.current_extent)
-                    .pre_transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
-                    .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-                    .image_format(format)
-                    .surface(surface)
-                    .min_image_count(3)
-                    .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT),
-                None,
-            )
-            .unwrap();
-
-        Self {
-            loader: swapchain_loader,
-            swapchain,
-            format,
-            resolution: surface_capabilities.current_extent,
-        }
-    }
-}
-
-pub struct SyncStructures {
-    pub present_semaphore: vk::Semaphore,
-    pub render_semaphore: vk::Semaphore,
-    pub render_fence: vk::Fence,
-}
-
-impl SyncStructures {
-    pub fn new(device: &ash::Device) -> Self {
-        unsafe {
-            let render_fence = device
-                .create_fence(
-                    &vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED),
-                    None,
-                )
-                .unwrap();
-            let present_semaphore = device
-                .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
-                .unwrap();
-            let render_semaphore = device
-                .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
-                .unwrap();
-
-            Self {
-                present_semaphore,
-                render_semaphore,
-                render_fence,
-            }
-        }
-    }
 }
 
 unsafe fn create_pipeline(
@@ -466,15 +404,10 @@ unsafe fn create_pipeline(
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
 
     let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
-        .depth_clamp_enable(false)
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.)
-        .cull_mode(vk::CullModeFlags::NONE)
-        .front_face(vk::FrontFace::CLOCKWISE)
-        .depth_bias_enable(false)
-        .depth_bias_constant_factor(0.)
-        .depth_bias_clamp(0.)
-        .depth_bias_slope_factor(0.);
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE);
 
     let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
         .sample_shading_enable(false)
@@ -483,20 +416,15 @@ unsafe fn create_pipeline(
         .alpha_to_coverage_enable(false)
         .alpha_to_one_enable(false);
 
-    let noop_stencil_state = vk::StencilOpState {
-        fail_op: vk::StencilOp::KEEP,
-        pass_op: vk::StencilOp::KEEP,
-        depth_fail_op: vk::StencilOp::KEEP,
-        compare_op: vk::CompareOp::ALWAYS,
-        ..Default::default()
-    };
+    // TODO: Revisit.
     let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
         depth_test_enable: 1,
         depth_write_enable: 1,
         depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
-        front: noop_stencil_state,
-        back: noop_stencil_state,
-        max_depth_bounds: 1.0,
+        depth_bounds_test_enable: 0,
+        min_depth_bounds: 0.,
+        max_depth_bounds: 1.,
+        stencil_test_enable: 0,
         ..Default::default()
     };
 
@@ -520,7 +448,7 @@ unsafe fn create_pipeline(
         .height(swapchain.resolution.height as _)
         .width(swapchain.resolution.width as _)
         .min_depth(0.)
-        .max_depth(0.);
+        .max_depth(1.);
 
     let scissor = swapchain.resolution.into();
 
@@ -532,6 +460,7 @@ unsafe fn create_pipeline(
     // let dynamic_state =
     //     &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
 
+    // TODO: Understand depth stencil state better - I always muck this up.
     let create_infos = vk::GraphicsPipelineCreateInfo::builder()
         .vertex_input_state(&vertex_input_state)
         .input_assembly_state(&input_assembly)
@@ -557,17 +486,20 @@ fn create_framebuffers(
     device: &ash::Device,
     swapchain: &Swapchain,
     swapchain_image_views: &[vk::ImageView],
+    depth_image_view: vk::ImageView,
     render_pass: &vk::RenderPass,
 ) -> Vec<vk::Framebuffer> {
     swapchain_image_views
         .iter()
         .map(|image_view| {
+            let attachments = [*image_view, depth_image_view];
             let framebuffer_create_info = vk::FramebufferCreateInfo::builder()
                 .render_pass(*render_pass)
                 .layers(1)
                 .width(swapchain.resolution.width)
                 .height(swapchain.resolution.height)
-                .attachments(std::slice::from_ref(image_view));
+                .attachments(&attachments);
+
             unsafe {
                 device
                     .create_framebuffer(&framebuffer_create_info, None)
@@ -577,72 +509,69 @@ fn create_framebuffers(
         .collect()
 }
 
-unsafe fn create_swapchain_image_views(
-    device: &ash::Device,
-    swapchain: &Swapchain,
-) -> (Vec<vk::Image>, Vec<vk::ImageView>) {
-    let swapchain_images = swapchain
-        .loader
-        .get_swapchain_images(swapchain.swapchain)
-        .unwrap();
-    let swapchain_image_views = swapchain_images
-        .iter()
-        .map(|i| {
-            device
-                .create_image_view(
-                    &vk::ImageViewCreateInfo::builder()
-                        .view_type(vk::ImageViewType::TYPE_2D)
-                        .components(vk::ComponentMapping {
-                            r: vk::ComponentSwizzle::R,
-                            g: vk::ComponentSwizzle::G,
-                            b: vk::ComponentSwizzle::B,
-                            a: vk::ComponentSwizzle::A,
-                        })
-                        .subresource_range(vk::ImageSubresourceRange {
-                            aspect_mask: vk::ImageAspectFlags::COLOR,
-                            base_mip_level: 0,
-                            level_count: 1,
-                            base_array_layer: 0,
-                            layer_count: 1,
-                        })
-                        .image(*i)
-                        .format(swapchain.format),
-                    None,
-                )
-                .unwrap()
-        })
-        .collect();
-
-    (swapchain_images, swapchain_image_views)
-}
-
 unsafe fn create_render_pass(device: &ash::Device, swapchain: &Swapchain) -> vk::RenderPass {
-    let color_attachment = vk::AttachmentDescription::builder()
-        .format(swapchain.format)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+    let attachments = [
+        vk::AttachmentDescription {
+            format: swapchain.format,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::STORE,
+            final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+            ..Default::default()
+        },
+        vk::AttachmentDescription {
+            format: DEPTH_FORMAT,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            ..Default::default()
+        },
+    ];
+    let color_attachment_refs = [vk::AttachmentReference {
+        attachment: 0,
+        layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+    }];
+    let depth_attachment_ref = vk::AttachmentReference {
+        attachment: 1,
+        layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
 
-    let color_attachment_ref = vk::AttachmentReference::builder()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let colour_dependency = vk::SubpassDependency {
+        src_subpass: vk::SUBPASS_EXTERNAL,
+        dst_subpass: 0,
+        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        src_access_mask: vk::AccessFlags::empty(),
+        dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        ..Default::default()
+    };
+
+    let depth_dependency = vk::SubpassDependency {
+        src_subpass: vk::SUBPASS_EXTERNAL,
+        dst_subpass: 0,
+        src_stage_mask: vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+            | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        src_access_mask: vk::AccessFlags::empty(),
+        dst_stage_mask: vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+            | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        dst_access_mask: vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        ..Default::default()
+    };
+
+    let dependencies = [colour_dependency, depth_dependency];
 
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(std::slice::from_ref(&color_attachment_ref));
+        .color_attachments(&color_attachment_refs)
+        .depth_stencil_attachment(&depth_attachment_ref);
 
-    device
-        .create_render_pass(
-            &vk::RenderPassCreateInfo::builder()
-                .attachments(std::slice::from_ref(&color_attachment))
-                .subpasses(std::slice::from_ref(&subpass)),
-            None,
-        )
-        .unwrap()
+    let create_info = &vk::RenderPassCreateInfo::builder()
+        .attachments(&attachments)
+        .subpasses(std::slice::from_ref(&subpass))
+        .dependencies(&dependencies);
+
+    device.create_render_pass(&create_info, None).unwrap()
 }
 
 unsafe fn create_command_buffer(

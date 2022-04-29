@@ -4,13 +4,12 @@
 		{
 			"type": "cargo",
 			"command": "run",
-			"env": {
-				"RUST_BACKTRACE": "1",
-			},
-			"problemMatcher": [
-				"$rustc"
+			"args": [
+				"--release"
 			],
-			"label": "rust: cargo run",
+			"env": {
+				"RUST_BACKTRACE": "1"
+			},
 			"group": {
 				"kind": "test",
 				"isDefault": true

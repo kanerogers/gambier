@@ -1,0 +1,462 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v1.8.19",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [5]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 1,
+      "name": "CoordinateSystem",
+      "translation": [
+        -0.003199740080162883, 0.01753392443060875, -0.0031997396145015955
+      ]
+    },
+    {
+      "mesh": 0,
+      "name": "BoomBox",
+      "translation": [0, 0.0020627330522984266, -0.00011474042548798025]
+    },
+    {
+      "mesh": 2,
+      "name": "X_axis",
+      "scale": [0.05999999865889549, 0.05999999865889549, 0.05999999865889549],
+      "translation": [
+        -0.010767878964543343, 0.014332682825624943, -5.500019597093342e-6
+      ]
+    },
+    {
+      "mesh": 3,
+      "name": "Y_axis",
+      "scale": [0.05999999865889549, 0.05999999865889549, 0.05999999865889549],
+      "translation": [0.0007127809221856296, 0.024210168048739433, 0]
+    },
+    {
+      "mesh": 4,
+      "name": "Z_axis",
+      "scale": [0.05999999865889549, 0.05999999865889549, 0.05999999865889549],
+      "translation": [
+        0.0008754920563660562, 0.014333982020616531, -0.00931331142783165
+      ]
+    },
+    {
+      "children": [0, 1, 2, 3, 4],
+      "name": "BoomBox_Coordinates",
+      "rotation": [0, 1, 0, -4.371138828673793e-8],
+      "scale": [10, 10, 10]
+    }
+  ],
+  "materials": [
+    {
+      "emissiveFactor": [1, 1, 1],
+      "emissiveTexture": {
+        "index": 0
+      },
+      "name": "M_BoomBox",
+      "normalTexture": {
+        "index": 1
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 2
+        },
+        "metallicRoughnessTexture": {
+          "index": 3
+        }
+      }
+    },
+    {
+      "name": "M_Coordinates",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 4
+        },
+        "metallicFactor": 0,
+        "roughnessFactor": 0.7350000143051147
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "BoomBox",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "CoordinateSystem",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "indices": 7,
+          "material": 1
+        }
+      ]
+    },
+    {
+      "name": "X_axis",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 8,
+            "NORMAL": 9,
+            "TEXCOORD_0": 10
+          },
+          "indices": 11,
+          "material": 1
+        }
+      ]
+    },
+    {
+      "name": "Y_axis",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 12,
+            "NORMAL": 13,
+            "TEXCOORD_0": 14
+          },
+          "indices": 15,
+          "material": 1
+        }
+      ]
+    },
+    {
+      "name": "Z_axis",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 16,
+            "NORMAL": 17,
+            "TEXCOORD_0": 18
+          },
+          "indices": 19,
+          "material": 1
+        }
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    },
+    {
+      "sampler": 0,
+      "source": 2
+    },
+    {
+      "sampler": 0,
+      "source": 3
+    },
+    {
+      "sampler": 0,
+      "source": 4
+    }
+  ],
+  "images": [
+    {
+      "mimeType": "image/png",
+      "name": "BoomBoxWithAxes_emissive",
+      "uri": "BoomBoxWithAxes_emissive.png"
+    },
+    {
+      "mimeType": "image/png",
+      "name": "BoomBoxWithAxes_normal",
+      "uri": "BoomBoxWithAxes_normal.png"
+    },
+    {
+      "mimeType": "image/png",
+      "name": "BoomBoxWithAxes_baseColor",
+      "uri": "BoomBoxWithAxes_baseColor.png"
+    },
+    {
+      "mimeType": "image/png",
+      "name": "BoomBoxWithAxes_roughnessMetallic",
+      "uri": "BoomBoxWithAxes_roughnessMetallic.png"
+    },
+    {
+      "mimeType": "image/png",
+      "name": "BoomBoxWithAxes_baseColor1",
+      "uri": "BoomBoxWithAxes_baseColor1.png"
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 3638,
+      "max": [0.009921154007315636, 0.00977163016796112, 0.010076245293021202],
+      "min": [
+        -0.009921154007315636, -0.00977163016796112, -0.010076245293021202
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 3638,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 3638,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 18108,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 890,
+      "max": [0.003958637826144695, 0.003958638291805983, 0.003958637360483408],
+      "min": [
+        -0.003958637826144695, -0.003958638291805983, -0.003958637360483408
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 890,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 890,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5123,
+      "count": 3420,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 8,
+      "componentType": 5126,
+      "count": 2670,
+      "max": [0.03458702936768532, 0.023930205032229424, 0.003500003833323717],
+      "min": [
+        -0.03458702936768532, -0.023930205032229424, -0.003500003833323717
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 9,
+      "componentType": 5126,
+      "count": 2670,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 10,
+      "componentType": 5126,
+      "count": 2670,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 11,
+      "componentType": 5123,
+      "count": 11064,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 12,
+      "componentType": 5126,
+      "count": 2089,
+      "max": [0.03368259221315384, 0.023930219933390617, 0.003500006627291441],
+      "min": [
+        -0.03368258476257324, -0.023930219933390617, -0.0035000008065253496
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 13,
+      "componentType": 5126,
+      "count": 2089,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 14,
+      "componentType": 5126,
+      "count": 2089,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 15,
+      "componentType": 5123,
+      "count": 8976,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 16,
+      "componentType": 5126,
+      "count": 1915,
+      "max": [0.03192058950662613, 0.023930201306939125, 0.003500006627291441],
+      "min": [
+        -0.03192055970430374, -0.023930229246616364, -0.0035000008065253496
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 17,
+      "componentType": 5126,
+      "count": 1915,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 18,
+      "componentType": 5126,
+      "count": 1915,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 19,
+      "componentType": 5123,
+      "count": 8496,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 43656,
+      "byteOffset": 0
+    },
+    {
+      "buffer": 0,
+      "byteLength": 43656,
+      "byteOffset": 43656
+    },
+    {
+      "buffer": 0,
+      "byteLength": 29104,
+      "byteOffset": 87312
+    },
+    {
+      "buffer": 0,
+      "byteLength": 36216,
+      "byteOffset": 116416
+    },
+    {
+      "buffer": 0,
+      "byteLength": 10680,
+      "byteOffset": 152632
+    },
+    {
+      "buffer": 0,
+      "byteLength": 10680,
+      "byteOffset": 163312
+    },
+    {
+      "buffer": 0,
+      "byteLength": 7120,
+      "byteOffset": 173992
+    },
+    {
+      "buffer": 0,
+      "byteLength": 6840,
+      "byteOffset": 181112
+    },
+    {
+      "buffer": 0,
+      "byteLength": 32040,
+      "byteOffset": 187952
+    },
+    {
+      "buffer": 0,
+      "byteLength": 32040,
+      "byteOffset": 219992
+    },
+    {
+      "buffer": 0,
+      "byteLength": 21360,
+      "byteOffset": 252032
+    },
+    {
+      "buffer": 0,
+      "byteLength": 22128,
+      "byteOffset": 273392
+    },
+    {
+      "buffer": 0,
+      "byteLength": 25068,
+      "byteOffset": 295520
+    },
+    {
+      "buffer": 0,
+      "byteLength": 25068,
+      "byteOffset": 320588
+    },
+    {
+      "buffer": 0,
+      "byteLength": 16712,
+      "byteOffset": 345656
+    },
+    {
+      "buffer": 0,
+      "byteLength": 17952,
+      "byteOffset": 362368
+    },
+    {
+      "buffer": 0,
+      "byteLength": 22980,
+      "byteOffset": 380320
+    },
+    {
+      "buffer": 0,
+      "byteLength": 22980,
+      "byteOffset": 403300
+    },
+    {
+      "buffer": 0,
+      "byteLength": 15320,
+      "byteOffset": 426280
+    },
+    {
+      "buffer": 0,
+      "byteLength": 16992,
+      "byteOffset": 441600
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 458592,
+      "uri": "BoomBoxWithAxes.bin"
+    }
+  ]
+}

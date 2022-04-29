@@ -3,22 +3,25 @@ use std::{ffi::c_void, marker::PhantomData};
 
 use ash::{vk, Device, Instance};
 
+use crate::memory::allocate_memory;
+
 pub struct Buffer<T: Sized> {
     pub buffer: vk::Buffer,
     pub device_memory: vk::DeviceMemory,
     pub memory_address: std::ptr::NonNull<c_void>,
     pub descriptor_set: vk::DescriptorSet,
+    pub len: usize,
     _phantom: PhantomData<T>,
-    usage: vk::BufferUsageFlags,
+    _usage: vk::BufferUsageFlags,
 }
 
 impl<T: Sized> Buffer<T> {
     pub unsafe fn new(
         device: &Device,
         instance: &Instance,
-        physical_device: &vk::PhysicalDevice,
-        descriptor_pool: &vk::DescriptorPool,
-        descriptor_set_layout: &vk::DescriptorSetLayout,
+        physical_device: vk::PhysicalDevice,
+        descriptor_pool: vk::DescriptorPool,
+        descriptor_set_layout: vk::DescriptorSetLayout,
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
     ) -> Buffer<T> {
@@ -30,40 +33,17 @@ impl<T: Sized> Buffer<T> {
                 None,
             )
             .unwrap();
+
         println!("..done! Allocating memory..");
-
-        // Allocate memory
         let memory_requirements = device.get_buffer_memory_requirements(buffer);
-        let memory_type_bits = memory_requirements.memory_type_bits;
-        let memory_properties = instance.get_physical_device_memory_properties(*physical_device);
-
-        let mut memory_type_index = !0;
-        for i in 0..memory_properties.memory_type_count as usize {
-            if (memory_type_bits & (1 << i)) == 0 {
-                continue;
-            }
-            let properties = memory_properties.memory_types[i].property_flags;
-            if properties.contains(
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            ) {
-                memory_type_index = i;
-                println!("Using {} which has flags {:?}", i, properties);
-                break;
-            }
-        }
-
-        if memory_type_index == !0 {
-            panic!("Unable to find suitable memory!")
-        }
-
-        let device_memory = device
-            .allocate_memory(
-                &vk::MemoryAllocateInfo::builder()
-                    .allocation_size(size)
-                    .memory_type_index(memory_type_index as _),
-                None,
-            )
-            .unwrap();
+        let flags = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+        let device_memory = allocate_memory(
+            device,
+            instance,
+            physical_device,
+            memory_requirements,
+            flags,
+        );
 
         println!("..done! Binding..");
 
@@ -89,8 +69,8 @@ impl<T: Sized> Buffer<T> {
             let descriptor_set = device
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::builder()
-                        .descriptor_pool(*descriptor_pool)
-                        .set_layouts(&[*descriptor_set_layout]),
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(&[descriptor_set_layout]),
                 )
                 .unwrap()[0];
 
@@ -112,7 +92,8 @@ impl<T: Sized> Buffer<T> {
             device_memory,
             memory_address: std::ptr::NonNull::new_unchecked(memory_address),
             descriptor_set: vk::DescriptorSet::null(),
-            usage,
+            len: initial_data.len(),
+            _usage: usage,
             _phantom: PhantomData,
         }
     }
