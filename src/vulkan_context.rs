@@ -2,6 +2,7 @@ use ash::{
     extensions::khr::{Surface as SurfaceLoader, Swapchain as SwapchainLoader},
     vk,
 };
+use nalgebra_glm::TMat4x4;
 use std::ffi::{CStr, CString};
 use vk_shader_macros::include_glsl;
 use winit::window::Window;
@@ -27,12 +28,22 @@ pub struct VertexInputDescription {
     attributes: Vec<vk::VertexInputAttributeDescription>,
 }
 
-#[repr(C)]
+#[repr(C, align(16))]
+#[derive(Debug, Clone)]
 pub struct Vertex {
     vx: f32,
     vy: f32,
     vz: f32,
-    vw: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+}
+
+#[repr(C, align(16))]
+#[derive(Debug, Clone)]
+pub struct Globals {
+    pub projection: TMat4x4<f32>,
+    pub view: TMat4x4<f32>,
 }
 
 impl Vertex {
@@ -43,19 +54,55 @@ impl Vertex {
                 stride: std::mem::size_of::<Vertex>() as _,
                 input_rate: vk::VertexInputRate::VERTEX,
             }],
-            attributes: vec![vk::VertexInputAttributeDescription {
-                location: 0,
-                binding: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: 0,
-            }],
+            attributes: vec![
+                vk::VertexInputAttributeDescription {
+                    location: 0,
+                    binding: 0,
+                    format: vk::Format::R32G32B32_SFLOAT,
+                    offset: 0,
+                },
+                vk::VertexInputAttributeDescription {
+                    location: 1,
+                    binding: 0,
+                    format: vk::Format::R32G32B32_SFLOAT,
+                    offset: (std::mem::size_of::<f32>() * 3) as u32,
+                },
+            ],
+        }
+    }
+
+    fn new(vx: f32, vy: f32, vz: f32) -> Self {
+        Self {
+            vx,
+            vy,
+            vz,
+            ..Default::default()
+        }
+    }
+
+    fn new_coloured(vx: f32, vy: f32, vz: f32, r: f32, g: f32, b: f32) -> Self {
+        Self {
+            vx,
+            vy,
+            vz,
+            r,
+            g,
+            b,
+            ..Default::default()
         }
     }
 }
 
-impl Vertex {
-    fn new(vx: f32, vy: f32, vz: f32) -> Self {
-        Self { vx, vy, vz, vw: 1. }
+impl Default for Vertex {
+    fn default() -> Self {
+        Self {
+            vx: 0.,
+            vy: 0.,
+            vz: 0.,
+            r: 1.,
+            g: 1.,
+            b: 1.,
+        }
     }
 }
 
@@ -75,6 +122,7 @@ pub struct VulkanContext {
     pub present_queue: vk::Queue,
     pub colored_pipeline: vk::Pipeline,
     pub vertex_buffer: Buffer<Vertex>,
+    pub index_buffer: Buffer<u32>,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
@@ -110,7 +158,7 @@ impl VulkanContext {
             // Resources
             let descriptor_pool = create_descriptor_pool(&device);
 
-            let vertex_buffer = fun_name(
+            let (vertex_buffer, index_buffer) = import_model(
                 &device,
                 &instance,
                 physical_device,
@@ -134,6 +182,7 @@ impl VulkanContext {
                 colored_pipeline,
                 present_queue,
                 vertex_buffer,
+                index_buffer,
                 descriptor_set_layout,
                 descriptor_pool,
                 pipeline_layout,
@@ -141,7 +190,7 @@ impl VulkanContext {
         }
     }
 
-    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline) {
+    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline, globals: &Globals) {
         let render_fence = &self.sync_structures.render_fence;
         let present_semaphore = &self.sync_structures.present_semaphore;
         let render_semaphore = &self.sync_structures.render_semaphore;
@@ -154,8 +203,16 @@ impl VulkanContext {
             SelectedPipeline::Colored => &self.colored_pipeline,
         };
 
+        let index_buffer = &self.index_buffer;
+        let vertex_buffer = &self.vertex_buffer;
+
         let pipeline_layout = self.pipeline_layout;
-        let descriptor_sets = [self.vertex_buffer.descriptor_set];
+        let _descriptor_sets = [self.vertex_buffer.descriptor_set];
+
+        let global_push_constant = std::slice::from_raw_parts(
+            (globals as *const Globals) as *const u8,
+            std::mem::size_of::<Globals>(),
+        );
 
         device
             .wait_for_fences(std::slice::from_ref(render_fence), true, 1000000000)
@@ -216,11 +273,32 @@ impl VulkanContext {
         //     &descriptor_sets,
         //     &[],
         // );
-        device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
+        device.cmd_bind_index_buffer(
+            command_buffer,
+            self.index_buffer.buffer,
+            0,
+            vk::IndexType::UINT32,
+        );
+        device.cmd_bind_vertex_buffers(
+            command_buffer,
+            0,
+            std::slice::from_ref(&vertex_buffer.buffer),
+            &[0],
+        );
+        device.cmd_push_constants(
+            command_buffer,
+            pipeline_layout,
+            vk::ShaderStageFlags::VERTEX,
+            0,
+            global_push_constant,
+        );
 
-        device.cmd_draw(command_buffer, 6, 1, 0, 0);
+        device.cmd_draw_indexed(command_buffer, index_buffer.len as _, 1, 0, 0, 0);
+
         device.cmd_end_render_pass(command_buffer);
         device.end_command_buffer(command_buffer).unwrap();
+
+        // Submit
         let submit_info = vk::SubmitInfo::builder()
             .command_buffers(std::slice::from_ref(&command_buffer))
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
@@ -245,19 +323,24 @@ impl VulkanContext {
     }
 }
 
-fn fun_name(
+fn import_model(
     device: &ash::Device,
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     descriptor_pool: vk::DescriptorPool,
     descriptor_set_layout: vk::DescriptorSetLayout,
-) -> Buffer<Vertex> {
-    let vertices = [
-        Vertex::new(-1., -1., 0.),
-        Vertex::new(1., -1., 0.),
-        Vertex::new(1., 1., 0.),
-        Vertex::new(-1., 1., 0.),
-    ];
+) -> (Buffer<Vertex>, Buffer<u32>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    let (gltf, buffers, _images) = gltf::import("assets/box.gltf").unwrap();
+
+    for scene in gltf.scenes() {
+        for node in scene.nodes() {
+            import_node(node, &mut indices, &mut vertices, &buffers);
+        }
+    }
+
     let vertex_buffer = unsafe {
         Buffer::new(
             device,
@@ -269,7 +352,63 @@ fn fun_name(
             vk::BufferUsageFlags::VERTEX_BUFFER,
         )
     };
-    vertex_buffer
+
+    let index_buffer = unsafe {
+        Buffer::new(
+            device,
+            instance,
+            &physical_device,
+            &descriptor_pool,
+            &descriptor_set_layout,
+            &indices,
+            vk::BufferUsageFlags::INDEX_BUFFER,
+        )
+    };
+
+    (vertex_buffer, index_buffer)
+}
+
+fn import_node(
+    node: gltf::Node,
+    indices: &mut Vec<u32>,
+    vertices: &mut Vec<Vertex>,
+    blob: &[gltf::buffer::Data],
+) {
+    if let Some(mesh) = node.mesh() {
+        for primitive in mesh.primitives() {
+            let reader = primitive.reader(|b| Some(&blob[b.index()]));
+            for i in reader.read_indices().unwrap().into_u32() {
+                indices.push(i);
+            }
+
+            for position in reader.read_positions().unwrap() {
+                vertices.push(Vertex::new(position[0], position[1], position[2]));
+            }
+
+            if let Some(colours) = reader.read_colors(0) {
+                for (colour, position) in
+                    colours.into_rgb_f32().zip(reader.read_positions().unwrap())
+                {
+                    vertices.push(Vertex::new_coloured(
+                        position[0],
+                        position[1],
+                        position[2],
+                        colour[0],
+                        colour[1],
+                        colour[2],
+                    ));
+                }
+            } else {
+                for position in reader.read_positions().unwrap() {
+                    vertices.push(Vertex::new(position[0], position[1], position[2]));
+                }
+            }
+        }
+    }
+
+    for node in node.children() {
+        import_node(node, indices, vertices, blob);
+    }
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
@@ -297,6 +436,7 @@ unsafe fn create_descriptor_layouts(
         descriptor_count: 1,
         ..Default::default()
     }];
+
     let descriptor_set_layout = device
         .create_descriptor_set_layout(
             &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
@@ -306,7 +446,14 @@ unsafe fn create_descriptor_layouts(
 
     let pipeline_layout = device
         .create_pipeline_layout(
-            &vk::PipelineLayoutCreateInfo::builder().set_layouts(&[descriptor_set_layout]),
+            &vk::PipelineLayoutCreateInfo::builder()
+                .set_layouts(&[descriptor_set_layout])
+                .push_constant_ranges(&[vk::PushConstantRange {
+                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    offset: 0,
+                    size: std::mem::size_of::<Globals>() as _,
+                    ..Default::default()
+                }]),
             None,
         )
         .unwrap();
@@ -360,7 +507,7 @@ unsafe fn init(window: &Window) -> (ash::Entry, ash::Instance) {
                     &vk::ApplicationInfo::builder()
                         .api_version(vk::make_api_version(0, 1, 3, 0))
                         .engine_name(&CString::new("Gambier").unwrap())
-                        .application_name(&CString::new("VKHex").unwrap()),
+                        .application_name(&CString::new("Gambier Test").unwrap()),
                 ),
             None,
         )
@@ -466,15 +613,10 @@ unsafe fn create_pipeline(
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
 
     let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
-        .depth_clamp_enable(false)
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.)
-        .cull_mode(vk::CullModeFlags::NONE)
-        .front_face(vk::FrontFace::CLOCKWISE)
-        .depth_bias_enable(false)
-        .depth_bias_constant_factor(0.)
-        .depth_bias_clamp(0.)
-        .depth_bias_slope_factor(0.);
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE);
 
     let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
         .sample_shading_enable(false)
@@ -483,20 +625,10 @@ unsafe fn create_pipeline(
         .alpha_to_coverage_enable(false)
         .alpha_to_one_enable(false);
 
-    let noop_stencil_state = vk::StencilOpState {
-        fail_op: vk::StencilOp::KEEP,
-        pass_op: vk::StencilOp::KEEP,
-        depth_fail_op: vk::StencilOp::KEEP,
-        compare_op: vk::CompareOp::ALWAYS,
-        ..Default::default()
-    };
     let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
         depth_test_enable: 1,
         depth_write_enable: 1,
-        depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
-        front: noop_stencil_state,
-        back: noop_stencil_state,
-        max_depth_bounds: 1.0,
+        depth_compare_op: vk::CompareOp::GREATER,
         ..Default::default()
     };
 
@@ -677,7 +809,7 @@ unsafe fn get_device(instance: &ash::Instance) -> (vk::PhysicalDevice, ash::Devi
         .drain(..)
         .find_map(|physical_device| {
             let physical_properties = instance.get_physical_device_properties(physical_device);
-            if physical_properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+            if physical_properties.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU {
                 return None;
             }
             instance
