@@ -405,7 +405,7 @@ unsafe fn create_pipeline(
     let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
         depth_test_enable: 1,
         depth_write_enable: 1,
-        depth_compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+        depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
         depth_bounds_test_enable: 0,
         min_depth_bounds: 0.,
         max_depth_bounds: 1.,
