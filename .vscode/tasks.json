@@ -2,7 +2,15 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "cpp",
+			"type": "cargo",
+			"command": "run",
+			"env": {
+				"RUST_BACKTRACE": "1"
+			},
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			}
 		}
 	]
 }

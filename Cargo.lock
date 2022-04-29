@@ -3,6 +3,18 @@
 version = 3
 
 [[package]]
+name = "Gambier"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "ash-window",
+ "gltf",
+ "nalgebra-glm",
+ "vk-shader-macros",
+ "winit",
+]
+
+[[package]]
 name = "adler32"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1081,18 +1093,6 @@ dependencies = [
  "quote",
  "shaderc",
  "syn",
-]
-
-[[package]]
-name = "vkhex"
-version = "0.1.0"
-dependencies = [
- "ash",
- "ash-window",
- "gltf",
- "nalgebra-glm",
- "vk-shader-macros",
- "winit",
 ]
 
 [[package]]

@@ -30,13 +30,11 @@ impl Image {
                     .extent(extent)
                     .mip_levels(1)
                     .array_layers(1)
+                    .image_type(vk::ImageType::TYPE_2D)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .tiling(vk::ImageTiling::OPTIMAL),
                 None,
             )
-            .unwrap();
-        let view = device
-            .create_image_view(&vk::ImageViewCreateInfo::builder().image(image), None)
             .unwrap();
 
         let memory_requirements = device.get_image_memory_requirements(image);
@@ -50,6 +48,22 @@ impl Image {
         );
 
         device.bind_image_memory(image, device_memory, 0).unwrap();
+
+        let view = device
+            .create_image_view(
+                &vk::ImageViewCreateInfo::builder()
+                    .subresource_range(vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::DEPTH,
+                        level_count: 1,
+                        layer_count: 1,
+                        ..Default::default()
+                    })
+                    .image(image)
+                    .format(DEPTH_FORMAT)
+                    .view_type(vk::ImageViewType::TYPE_2D),
+                None,
+            )
+            .unwrap();
 
         Self {
             image,

@@ -508,7 +508,7 @@ unsafe fn create_render_pass(device: &ash::Device, swapchain: &Swapchain) -> vk:
             format: DEPTH_FORMAT,
             samples: vk::SampleCountFlags::TYPE_1,
             load_op: vk::AttachmentLoadOp::CLEAR,
-            initial_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            initial_layout: vk::ImageLayout::UNDEFINED,
             final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             ..Default::default()
         },
@@ -544,10 +544,7 @@ unsafe fn create_render_pass(device: &ash::Device, swapchain: &Swapchain) -> vk:
         ..Default::default()
     };
 
-    let dependencies = [
-        colour_dependency,
-        // depth_dependency
-    ];
+    let dependencies = [colour_dependency, depth_dependency];
 
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
