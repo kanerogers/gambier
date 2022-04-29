@@ -3,6 +3,8 @@ use std::{ffi::c_void, marker::PhantomData};
 
 use ash::{vk, Device, Instance};
 
+use crate::memory::allocate_memory;
+
 pub struct Buffer<T: Sized> {
     pub buffer: vk::Buffer,
     pub device_memory: vk::DeviceMemory,
@@ -31,40 +33,17 @@ impl<T: Sized> Buffer<T> {
                 None,
             )
             .unwrap();
+
         println!("..done! Allocating memory..");
-
-        // Allocate memory
         let memory_requirements = device.get_buffer_memory_requirements(buffer);
-        let memory_type_bits = memory_requirements.memory_type_bits;
-        let memory_properties = instance.get_physical_device_memory_properties(physical_device);
-
-        let mut memory_type_index = !0;
-        for i in 0..memory_properties.memory_type_count as usize {
-            if (memory_type_bits & (1 << i)) == 0 {
-                continue;
-            }
-            let properties = memory_properties.memory_types[i].property_flags;
-            if properties.contains(
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            ) {
-                memory_type_index = i;
-                println!("Using {} which has flags {:?}", i, properties);
-                break;
-            }
-        }
-
-        if memory_type_index == !0 {
-            panic!("Unable to find suitable memory!")
-        }
-
-        let device_memory = device
-            .allocate_memory(
-                &vk::MemoryAllocateInfo::builder()
-                    .allocation_size(size)
-                    .memory_type_index(memory_type_index as _),
-                None,
-            )
-            .unwrap();
+        let flags = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+        let device_memory = allocate_memory(
+            device,
+            instance,
+            physical_device,
+            memory_requirements,
+            flags,
+        );
 
         println!("..done! Binding..");
 

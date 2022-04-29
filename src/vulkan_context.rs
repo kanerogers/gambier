@@ -64,12 +64,23 @@ impl VulkanContext {
             let present_queue = device.get_device_queue(queue_family_index, 0);
             let swapchain = Swapchain::new(&entry, &instance, window, physical_device, &device);
             let (swapchain_images, swapchain_image_views) = swapchain.create_image_views(&device);
+            let depth_extent = vk::Extent3D {
+                width: swapchain.resolution.width,
+                height: swapchain.resolution.height,
+                depth: 1,
+            };
+            let depth_image = Image::new(
+                &device,
+                &instance,
+                physical_device,
+                DEPTH_FORMAT,
+                vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+                depth_extent,
+            );
 
             let command_pool = create_command_pool(&device, queue_family_index);
             let command_buffer = create_command_buffer(&device, command_pool);
             let render_pass = create_render_pass(&device, &swapchain);
-            let framebuffers =
-                create_framebuffers(&device, &swapchain, &swapchain_image_views, &render_pass);
             let sync_structures = SyncStructures::new(&device);
             let (descriptor_set_layout, pipeline_layout) = create_descriptor_layouts(&device);
 
@@ -83,6 +94,13 @@ impl VulkanContext {
             );
 
             // Resources
+            let framebuffers = create_framebuffers(
+                &device,
+                &swapchain,
+                &swapchain_image_views,
+                depth_image.view,
+                &render_pass,
+            );
             let descriptor_pool = create_descriptor_pool(&device);
 
             let (vertex_buffer, index_buffer) = import_model(
@@ -91,22 +109,6 @@ impl VulkanContext {
                 physical_device,
                 descriptor_pool,
                 descriptor_set_layout,
-            );
-
-            let depth_extent = vk::Extent3D {
-                width: swapchain.resolution.width,
-                height: swapchain.resolution.height,
-                depth: 1,
-            };
-            let depth_image = Image::new(
-                &device,
-                &instance,
-                physical_device,
-                descriptor_pool,
-                descriptor_set_layout,
-                DEPTH_FORMAT,
-                vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-                depth_extent,
             );
 
             Self {
@@ -141,7 +143,7 @@ impl VulkanContext {
         let command_buffer = self.command_buffer;
         let device = &self.device;
         let swapchain = &self.swapchain;
-        let render_pass = &self.render_pass;
+        let render_pass = self.render_pass;
         let framebuffers = &self.framebuffers;
         let pipeline = match selected_pipeline {
             SelectedPipeline::Colored => &self.colored_pipeline,
@@ -198,7 +200,7 @@ impl VulkanContext {
             },
         ];
         let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(*render_pass)
+            .render_pass(render_pass)
             .framebuffer(framebuffers[swapchain_image_index as usize])
             .render_area(swapchain.resolution.into())
             .clear_values(&clear_values);
@@ -400,10 +402,14 @@ unsafe fn create_pipeline(
         .alpha_to_one_enable(false);
 
     // TODO: Revisit.
-    let _depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
+    let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
         depth_test_enable: 1,
         depth_write_enable: 1,
-        depth_compare_op: vk::CompareOp::GREATER,
+        depth_compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+        depth_bounds_test_enable: 0,
+        min_depth_bounds: 0.,
+        max_depth_bounds: 1.,
+        stencil_test_enable: 0,
         ..Default::default()
     };
 
@@ -447,7 +453,7 @@ unsafe fn create_pipeline(
         .rasterization_state(&rasterization_state)
         .multisample_state(&multisample_state)
         .color_blend_state(&color_blend_state)
-        // .depth_stencil_state(&depth_state_info)
+        .depth_stencil_state(&depth_state_info)
         .render_pass(*render_pass)
         .layout(pipeline_layout)
         .stages(&shader_stages);
@@ -465,17 +471,20 @@ fn create_framebuffers(
     device: &ash::Device,
     swapchain: &Swapchain,
     swapchain_image_views: &[vk::ImageView],
+    depth_image_view: vk::ImageView,
     render_pass: &vk::RenderPass,
 ) -> Vec<vk::Framebuffer> {
     swapchain_image_views
         .iter()
         .map(|image_view| {
+            let attachments = [*image_view, depth_image_view];
             let framebuffer_create_info = vk::FramebufferCreateInfo::builder()
                 .render_pass(*render_pass)
                 .layers(1)
                 .width(swapchain.resolution.width)
                 .height(swapchain.resolution.height)
-                .attachments(std::slice::from_ref(image_view));
+                .attachments(&attachments);
+
             unsafe {
                 device
                     .create_framebuffer(&framebuffer_create_info, None)
@@ -486,32 +495,71 @@ fn create_framebuffers(
 }
 
 unsafe fn create_render_pass(device: &ash::Device, swapchain: &Swapchain) -> vk::RenderPass {
-    let color_attachment = vk::AttachmentDescription::builder()
-        .format(swapchain.format)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+    let attachments = [
+        vk::AttachmentDescription {
+            format: swapchain.format,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::STORE,
+            final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+            ..Default::default()
+        },
+        vk::AttachmentDescription {
+            format: DEPTH_FORMAT,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            initial_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            ..Default::default()
+        },
+    ];
+    let color_attachment_refs = [vk::AttachmentReference {
+        attachment: 0,
+        layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+    }];
+    let depth_attachment_ref = vk::AttachmentReference {
+        attachment: 1,
+        layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
 
-    let color_attachment_ref = vk::AttachmentReference::builder()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let colour_dependency = vk::SubpassDependency {
+        src_subpass: vk::SUBPASS_EXTERNAL,
+        dst_subpass: 0,
+        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        src_access_mask: vk::AccessFlags::empty(),
+        dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        ..Default::default()
+    };
+
+    let depth_dependency = vk::SubpassDependency {
+        src_subpass: vk::SUBPASS_EXTERNAL,
+        dst_subpass: 0,
+        src_stage_mask: vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+            | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        src_access_mask: vk::AccessFlags::empty(),
+        dst_stage_mask: vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+            | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        dst_access_mask: vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        ..Default::default()
+    };
+
+    let dependencies = [
+        colour_dependency,
+        // depth_dependency
+    ];
 
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(std::slice::from_ref(&color_attachment_ref));
+        .color_attachments(&color_attachment_refs)
+        .depth_stencil_attachment(&depth_attachment_ref);
 
-    device
-        .create_render_pass(
-            &vk::RenderPassCreateInfo::builder()
-                .attachments(std::slice::from_ref(&color_attachment))
-                .subpasses(std::slice::from_ref(&subpass)),
-            None,
-        )
-        .unwrap()
+    let create_info = &vk::RenderPassCreateInfo::builder()
+        .attachments(&attachments)
+        .subpasses(std::slice::from_ref(&subpass))
+        .dependencies(&dependencies);
+
+    device.create_render_pass(&create_info, None).unwrap()
 }
 
 unsafe fn create_command_buffer(

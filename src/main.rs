@@ -1,5 +1,6 @@
 pub mod buffer;
 pub mod image;
+pub mod memory;
 pub mod model;
 pub mod swapchain;
 pub mod sync_structures;
