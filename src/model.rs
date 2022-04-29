@@ -29,7 +29,8 @@ pub struct Mesh {
 }
 
 pub struct Primitive {
-    pub offset: u32,
+    pub index_offset: u32,
+    pub vertex_offset: u32,
     pub num_indices: u32,
 }
 
@@ -46,6 +47,7 @@ pub fn import_models(
     let (gltf, buffers, _images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
     let mut models = Vec::new();
     let mut index_offset = 0;
+    let mut vertex_offset = 0;
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
@@ -56,6 +58,7 @@ pub fn import_models(
                 &buffers,
                 &mut models,
                 &mut index_offset,
+                &mut vertex_offset,
                 &nalgebra_glm::identity(),
             );
         }
@@ -92,36 +95,39 @@ fn import_node(
     node: gltf::Node,
     indices: &mut Vec<u32>,
     vertices: &mut Vec<Vertex>,
-    blob: &[gltf::buffer::Data],
+    buffers: &[gltf::buffer::Data],
     models: &mut Vec<Model>,
-    offset: &mut u32,
+    index_offset: &mut u32,
+    vertex_offset: &mut u32,
     parent_transform: &nalgebra_glm::TMat4<f32>,
 ) {
     let local_transform: TMat4<f32> = node.transform().matrix().into();
+    let transform = parent_transform * &local_transform;
+    let name = if let Some(name) = node.name() {
+        name.to_string()
+    } else {
+        format!("Node {}", node.index())
+    };
+
+    println!("Importing {} with transform {:?}", name, local_transform);
+
     if let Some(mesh) = node.mesh() {
         let mut primitives = Vec::new();
-        let transform = parent_transform * &local_transform;
-
-        let name = if let Some(name) = node.name() {
-            name.to_string()
-        } else {
-            format!("Node {}", node.index())
-        };
 
         for primitive in mesh.primitives() {
-            let reader = primitive.reader(|b| Some(&blob[b.index()]));
+            let reader = primitive.reader(|b| Some(&buffers[b.index()]));
+            let mut num_indices = 0;
+            let mut num_vertices = 0;
             for i in reader.read_indices().unwrap().into_u32() {
+                num_indices += 1;
                 indices.push(i);
-            }
-
-            for position in reader.read_positions().unwrap() {
-                vertices.push(Vertex::new(position[0], position[1], position[2]));
             }
 
             if let Some(colours) = reader.read_colors(0) {
                 for (colour, position) in
                     colours.into_rgb_f32().zip(reader.read_positions().unwrap())
                 {
+                    num_vertices += 1;
                     vertices.push(Vertex::new_coloured(
                         position[0],
                         position[1],
@@ -133,17 +139,23 @@ fn import_node(
                 }
             } else {
                 for position in reader.read_positions().unwrap() {
+                    num_vertices += 1;
                     vertices.push(Vertex::new(position[0], position[1], position[2]));
                 }
             }
 
-            let num_indices = indices.len() as _;
             primitives.push(Primitive {
-                offset: *offset as _,
+                index_offset: *index_offset,
+                vertex_offset: *vertex_offset,
                 num_indices,
             });
 
-            *offset += num_indices;
+            assert_eq!(indices.len(), (*index_offset + num_indices) as usize);
+            assert_eq!(vertices.len(), (*vertex_offset + num_vertices) as usize);
+
+            *index_offset += num_indices;
+            *vertex_offset += num_vertices;
+            println!("Offset is now: {}", index_offset);
         }
 
         models.push(Model::new(name, transform, primitives));
@@ -154,9 +166,10 @@ fn import_node(
             node,
             indices,
             vertices,
-            blob,
+            buffers,
             models,
-            offset,
+            index_offset,
+            vertex_offset,
             &local_transform,
         );
     }
@@ -194,8 +207,8 @@ impl Vertex {
                     offset: 0,
                 },
                 vk::VertexInputAttributeDescription {
-                    location: 1,
                     binding: 0,
+                    location: 1,
                     format: vk::Format::R32G32B32_SFLOAT,
                     offset: (std::mem::size_of::<f32>() * 3) as u32,
                 },

@@ -72,7 +72,7 @@ fn main() {
                         }
                         Some(VirtualKeyCode::A) => {
                             let delta = nalgebra_glm::rotate_y_vec3(
-                                &nalgebra_glm::vec3(displacement, 0., 0.),
+                                &nalgebra_glm::vec3(-displacement, 0., 0.),
                                 camera_y_rot,
                             );
                             camera_pos += delta;
@@ -80,18 +80,18 @@ fn main() {
                         }
                         Some(VirtualKeyCode::D) => {
                             let delta = nalgebra_glm::rotate_y_vec3(
-                                &nalgebra_glm::vec3(-displacement, 0., 0.),
+                                &nalgebra_glm::vec3(displacement, 0., 0.),
                                 camera_y_rot,
                             );
                             camera_pos += delta;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
                         Some(VirtualKeyCode::Q) => {
-                            camera_y_rot -= displacement;
+                            camera_y_rot += displacement;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
                         Some(VirtualKeyCode::E) => {
-                            camera_y_rot += displacement;
+                            camera_y_rot -= displacement;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
                         _ => {}
@@ -113,7 +113,7 @@ fn create_projection_matrix() -> glm::TMat4<f32> {
     let aspect_ratio = 800. / 600.;
     let fov_y = 70_f32.to_radians();
     let f = 1.0 / (fov_y / 2.0).tan();
-    let z_near = 0.5;
+    let z_near = 0.1;
 
     #[rustfmt::skip]
     let niagra = nalgebra_glm::mat4(
@@ -141,8 +141,8 @@ fn create_projection_matrix() -> glm::TMat4<f32> {
     );
 
     // NOTE: Requires depth testing to be configured as per vkguide - NOT niagra.
-    let mut vulkan_guide = glm::perspective(fov_y, aspect_ratio, 0.1, 200.0);
-    vulkan_guide.m11 *= -1.; // inverse Y for Vulkan
+    let mut vulkan_guide = glm::infinite_perspective_rh_zo(aspect_ratio, fov_y, z_near);
+    vulkan_guide.m22 *= -1.; // inverse Y for Vulkan
 
     // niagra
     // vulkan

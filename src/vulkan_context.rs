@@ -247,10 +247,10 @@ impl VulkanContext {
                 );
                 device.cmd_draw_indexed(
                     command_buffer,
-                    primitive.num_indices as _,
+                    primitive.num_indices,
                     1,
-                    primitive.offset,
-                    0,
+                    primitive.index_offset,
+                    primitive.vertex_offset as _,
                     0,
                 );
             }
