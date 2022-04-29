@@ -613,15 +613,10 @@ unsafe fn create_pipeline(
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
 
     let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
-        .depth_clamp_enable(false)
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.)
-        .cull_mode(vk::CullModeFlags::NONE)
-        .front_face(vk::FrontFace::CLOCKWISE)
-        .depth_bias_enable(false)
-        .depth_bias_constant_factor(0.)
-        .depth_bias_clamp(0.)
-        .depth_bias_slope_factor(0.);
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE);
 
     let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
         .sample_shading_enable(false)
@@ -630,20 +625,10 @@ unsafe fn create_pipeline(
         .alpha_to_coverage_enable(false)
         .alpha_to_one_enable(false);
 
-    let noop_stencil_state = vk::StencilOpState {
-        fail_op: vk::StencilOp::KEEP,
-        pass_op: vk::StencilOp::KEEP,
-        depth_fail_op: vk::StencilOp::KEEP,
-        compare_op: vk::CompareOp::ALWAYS,
-        ..Default::default()
-    };
     let depth_state_info = vk::PipelineDepthStencilStateCreateInfo {
         depth_test_enable: 1,
         depth_write_enable: 1,
-        depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
-        front: noop_stencil_state,
-        back: noop_stencil_state,
-        max_depth_bounds: 1.0,
+        depth_compare_op: vk::CompareOp::GREATER,
         ..Default::default()
     };
 
@@ -824,7 +809,7 @@ unsafe fn get_device(instance: &ash::Instance) -> (vk::PhysicalDevice, ash::Devi
         .drain(..)
         .find_map(|physical_device| {
             let physical_properties = instance.get_physical_device_properties(physical_device);
-            if physical_properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+            if physical_properties.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU {
                 return None;
             }
             instance
