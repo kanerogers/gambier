@@ -13,8 +13,9 @@ use winit::window::Window;
 
 use crate::buffer::Buffer;
 
-const COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
-const COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
+static COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
+static COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
+pub static SWAPCHAIN_LENGTH: u32 = 3;
 
 #[derive(Clone)]
 pub enum SelectedPipeline {
@@ -42,12 +43,10 @@ pub struct VulkanContext {
     pub device: ash::Device,
     pub swapchain: Swapchain,
     pub command_pool: vk::CommandPool,
-    pub command_buffer: vk::CommandBuffer,
     pub render_pass: vk::RenderPass,
     pub swapchain_images: Vec<vk::Image>,
     pub swapchain_image_views: Vec<vk::ImageView>,
     pub framebuffers: Vec<vk::Framebuffer>,
-    pub sync_structures: SyncStructures,
     pub present_queue: vk::Queue,
     pub colored_pipeline: vk::Pipeline,
     pub vertex_buffer: Buffer<Vertex>,
@@ -58,6 +57,7 @@ pub struct VulkanContext {
     pub depth_image: Image,
     pub models: Vec<Model>,
     pub frames: Vec<Frame>,
+    pub frame_index: usize,
 }
 
 impl VulkanContext {
@@ -83,9 +83,8 @@ impl VulkanContext {
             );
 
             let command_pool = create_command_pool(&device, queue_family_index);
-            let command_buffer = create_command_buffer(&device, command_pool);
+            let frames = (0..3).map(|_| Frame::new(&device, command_pool)).collect();
             let render_pass = create_render_pass(&device, &swapchain);
-            let sync_structures = SyncStructures::new(&device);
             let (descriptor_set_layout, pipeline_layout) = create_descriptor_layouts(&device);
 
             let shader_stages = create_shader_stages(&device, COLORED_VERT, COLORED_FRAG);
@@ -115,8 +114,6 @@ impl VulkanContext {
                 descriptor_set_layout,
             );
 
-            let frames = Vec::new();
-
             Self {
                 entry,
                 instance,
@@ -124,12 +121,10 @@ impl VulkanContext {
                 device,
                 swapchain,
                 command_pool,
-                command_buffer,
                 render_pass,
                 swapchain_images,
                 swapchain_image_views,
                 framebuffers,
-                sync_structures,
                 colored_pipeline,
                 present_queue,
                 vertex_buffer,
@@ -140,15 +135,19 @@ impl VulkanContext {
                 depth_image,
                 models,
                 frames,
+                frame_index: 0,
             }
         }
     }
 
-    pub unsafe fn render(&self, selected_pipeline: &SelectedPipeline, globals: &mut Globals) {
-        let render_fence = &self.sync_structures.render_fence;
-        let present_semaphore = &self.sync_structures.present_semaphore;
-        let render_semaphore = &self.sync_structures.render_semaphore;
-        let command_buffer = self.command_buffer;
+    pub unsafe fn render(&mut self, selected_pipeline: &SelectedPipeline, globals: &mut Globals) {
+        let frame = &self.frames[self.frame_index];
+        let sync_structures = &frame.sync_structures;
+        let render_fence = &sync_structures.render_fence;
+        let present_semaphore = &sync_structures.present_semaphore;
+        let render_semaphore = &sync_structures.render_semaphore;
+        let command_buffer = frame.command_buffer;
+
         let device = &self.device;
         let swapchain = &self.swapchain;
         let render_pass = self.render_pass;
@@ -281,6 +280,8 @@ impl VulkanContext {
             .loader
             .queue_present(self.present_queue, &present_info)
             .unwrap();
+
+        self.frame_index = (self.frame_index + 1) % 3;
     }
 }
 
@@ -572,20 +573,6 @@ unsafe fn create_render_pass(device: &ash::Device, swapchain: &Swapchain) -> vk:
         .dependencies(&dependencies);
 
     device.create_render_pass(&create_info, None).unwrap()
-}
-
-unsafe fn create_command_buffer(
-    device: &ash::Device,
-    command_pool: vk::CommandPool,
-) -> vk::CommandBuffer {
-    device
-        .allocate_command_buffers(
-            &vk::CommandBufferAllocateInfo::builder()
-                .command_buffer_count(1)
-                .command_pool(command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY),
-        )
-        .unwrap()[0]
 }
 
 unsafe fn create_command_pool(device: &ash::Device, queue_family_index: u32) -> vk::CommandPool {

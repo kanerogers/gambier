@@ -20,9 +20,9 @@ use winit::{
 fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let context = VulkanContext::new(&window);
+    let mut context = VulkanContext::new(&window);
     let mut selected_pipeline = SelectedPipeline::Colored;
-    let mut camera_pos = nalgebra_glm::vec3(0., 0., 2.);
+    let mut camera_pos = nalgebra_glm::vec3(0., 0.2, 2.);
     let mut camera_y_rot = 0.;
 
     let projection = create_projection_matrix();
@@ -50,7 +50,7 @@ fn main() {
             } => {
                 if input.state == winit::event::ElementState::Pressed {
                     let delta_time = (Instant::now() - last_frame_time).as_secs_f32();
-                    let displacement = (100 / 1) as f32 * delta_time;
+                    let displacement = (100 / 1) as f32 * delta_time.clamp(0., 1.);
                     match input.virtual_keycode {
                         Some(VirtualKeyCode::Key1) => {
                             selected_pipeline = SelectedPipeline::Colored;
