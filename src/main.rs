@@ -9,8 +9,9 @@ pub mod vulkan_context;
 
 use std::time::Instant;
 
+use model::import_models;
 use nalgebra_glm as glm;
-use vulkan_context::{Globals, SelectedPipeline, VulkanContext};
+use vulkan_context::{Globals, VulkanContext};
 use winit::{
     event::{VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -20,8 +21,7 @@ use winit::{
 fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut context = VulkanContext::new(&window);
-    let mut selected_pipeline = SelectedPipeline::Colored;
+    let mut vulkan_context = VulkanContext::new(&window);
     let mut camera_pos = nalgebra_glm::vec3(0., 0.2, 2.);
     let mut camera_y_rot = 0.;
 
@@ -34,6 +34,7 @@ fn main() {
         model,
     };
     let mut last_frame_time = Instant::now();
+    let models = import_models(&vulkan_context);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -52,9 +53,6 @@ fn main() {
                     let delta_time = (Instant::now() - last_frame_time).as_secs_f32();
                     let displacement = (100 / 1) as f32 * delta_time.clamp(0., 1.);
                     match input.virtual_keycode {
-                        Some(VirtualKeyCode::Key1) => {
-                            selected_pipeline = SelectedPipeline::Colored;
-                        }
                         Some(VirtualKeyCode::W) => {
                             let delta = nalgebra_glm::rotate_y_vec3(
                                 &glm::vec3(0., 0., -displacement),
@@ -101,7 +99,7 @@ fn main() {
             }
 
             winit::event::Event::MainEventsCleared => unsafe {
-                context.render(&selected_pipeline, &mut globals);
+                vulkan_context.render(&models, &mut globals);
                 last_frame_time = Instant::now();
             },
             _ => {}

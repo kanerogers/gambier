@@ -1,7 +1,7 @@
 use ash::vk;
 use nalgebra_glm::TMat4;
 
-use crate::buffer::Buffer;
+use crate::vulkan_context::VulkanContext;
 
 pub struct Model {
     pub name: String,
@@ -34,13 +34,7 @@ pub struct Primitive {
     pub num_indices: u32,
 }
 
-pub fn import_models(
-    device: &ash::Device,
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    descriptor_pool: vk::DescriptorPool,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-) -> (Buffer<Vertex>, Buffer<u32>, Vec<Model>) {
+pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
@@ -64,31 +58,13 @@ pub fn import_models(
         }
     }
 
-    let vertex_buffer = unsafe {
-        Buffer::new(
-            device,
-            instance,
-            physical_device,
-            descriptor_pool,
-            descriptor_set_layout,
-            &vertices,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-        )
+    // Copy indices and vertices into buffers.
+    unsafe {
+        vulkan_context.index_buffer.overwrite(&indices);
+        vulkan_context.vertex_buffer.overwrite(&vertices);
     };
 
-    let index_buffer = unsafe {
-        Buffer::new(
-            device,
-            instance,
-            physical_device,
-            descriptor_pool,
-            descriptor_set_layout,
-            &indices,
-            vk::BufferUsageFlags::INDEX_BUFFER,
-        )
-    };
-
-    (vertex_buffer, index_buffer, models)
+    models
 }
 
 fn import_node(

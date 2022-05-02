@@ -1,7 +1,7 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::{import_models, Model, Vertex},
+    model::{Model, Vertex},
     swapchain::Swapchain,
 };
 use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
@@ -54,7 +54,6 @@ pub struct VulkanContext {
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
     pub depth_image: Image,
-    pub models: Vec<Model>,
     pub frames: Vec<Frame>,
     pub frame_index: usize,
 }
@@ -104,13 +103,24 @@ impl VulkanContext {
                 &render_pass,
             );
             let descriptor_pool = create_descriptor_pool(&device);
-
-            let (vertex_buffer, index_buffer, models) = import_models(
+            let vertex_buffer = Buffer::new(
                 &device,
                 &instance,
                 physical_device,
                 descriptor_pool,
                 descriptor_set_layout,
+                &[],
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+            );
+
+            let index_buffer = Buffer::new(
+                &device,
+                &instance,
+                physical_device,
+                descriptor_pool,
+                descriptor_set_layout,
+                &[],
+                vk::BufferUsageFlags::INDEX_BUFFER,
             );
 
             Self {
@@ -132,14 +142,13 @@ impl VulkanContext {
                 descriptor_pool,
                 pipeline_layout,
                 depth_image,
-                models,
                 frames,
                 frame_index: 0,
             }
         }
     }
 
-    pub unsafe fn render(&mut self, selected_pipeline: &SelectedPipeline, globals: &mut Globals) {
+    pub unsafe fn render(&mut self, models: &[Model], globals: &mut Globals) {
         let frame = &self.frames[self.frame_index];
         let sync_structures = &frame.sync_structures;
         let render_fence = &sync_structures.render_fence;
@@ -151,9 +160,7 @@ impl VulkanContext {
         let swapchain = &self.swapchain;
         let render_pass = self.render_pass;
         let framebuffers = &self.framebuffers;
-        let pipeline = match selected_pipeline {
-            SelectedPipeline::Colored => &self.colored_pipeline,
-        };
+        let pipeline = &self.colored_pipeline;
 
         let index_buffer = self.index_buffer.buffer;
         let vertex_buffer = self.vertex_buffer.buffer;
@@ -233,7 +240,7 @@ impl VulkanContext {
             &[0],
         );
 
-        for model in &self.models {
+        for model in models {
             for primitive in &model.mesh.primitives {
                 globals.model = model.transform;
                 device.cmd_push_constants(
