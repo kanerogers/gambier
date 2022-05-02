@@ -3,7 +3,6 @@ use crate::{
     image::{Image, DEPTH_FORMAT},
     model::{import_models, Model, Vertex},
     swapchain::Swapchain,
-    sync_structures::SyncStructures,
 };
 use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
 use nalgebra_glm::TMat4x4;

@@ -1,5 +1,4 @@
 use core::ptr::copy_nonoverlapping;
-use std::{ffi::c_void, marker::PhantomData};
 
 use ash::{vk, Device, Instance};
 
@@ -8,10 +7,9 @@ use crate::memory::allocate_memory;
 pub struct Buffer<T: Sized> {
     pub buffer: vk::Buffer,
     pub device_memory: vk::DeviceMemory,
-    pub memory_address: std::ptr::NonNull<c_void>,
+    pub memory_address: std::ptr::NonNull<T>,
     pub descriptor_set: vk::DescriptorSet,
     pub len: usize,
-    _phantom: PhantomData<T>,
     _usage: vk::BufferUsageFlags,
 }
 
@@ -87,6 +85,9 @@ impl<T: Sized> Buffer<T> {
             device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
         }
 
+        // Transmute the pointer into GPU memory so that we can easily access it again.
+        let memory_address = std::mem::transmute(memory_address);
+
         Buffer {
             buffer,
             device_memory,
@@ -94,7 +95,6 @@ impl<T: Sized> Buffer<T> {
             descriptor_set: vk::DescriptorSet::null(),
             len: initial_data.len(),
             _usage: usage,
-            _phantom: PhantomData,
         }
     }
 }
