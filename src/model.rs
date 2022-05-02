@@ -3,6 +3,7 @@ use nalgebra_glm::TMat4;
 
 use crate::vulkan_context::VulkanContext;
 
+#[derive(Debug)]
 pub struct Model {
     pub name: String,
     pub transform: nalgebra_glm::TMat4<f32>,
@@ -24,60 +25,68 @@ impl Model {
     }
 }
 
+#[derive(Debug)]
 pub struct Mesh {
     pub primitives: Vec<Primitive>,
 }
 
+#[derive(Debug)]
 pub struct Primitive {
     pub index_offset: u32,
     pub vertex_offset: u32,
     pub num_indices: u32,
 }
 
-pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+#[derive(Debug)]
+pub struct ImportState {
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+    index_offset: u32,
+    vertex_offset: u32,
+    buffers: Vec<gltf::buffer::Data>,
+    images: Vec<gltf::image::Data>,
+    models: Vec<Model>,
+}
 
+impl ImportState {
+    pub fn new(buffers: Vec<gltf::buffer::Data>, images: Vec<gltf::image::Data>) -> Self {
+        Self {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            models: Vec::new(),
+            index_offset: 0,
+            vertex_offset: 0,
+            buffers,
+            images,
+        }
+    }
+}
+
+pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
     let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
-    let mut models = Vec::new();
-    let mut index_offset = 0;
-    let mut vertex_offset = 0;
+    let mut import_state = ImportState::new(buffers, images);
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
-            import_node(
-                node,
-                &mut indices,
-                &mut vertices,
-                &buffers,
-                &mut models,
-                &mut index_offset,
-                &mut vertex_offset,
-                &nalgebra_glm::identity(),
-                &images,
-            );
+            import_node(node, &mut import_state, &nalgebra_glm::identity());
         }
     }
 
     // Copy indices and vertices into buffers.
     unsafe {
-        vulkan_context.index_buffer.overwrite(&indices);
-        vulkan_context.vertex_buffer.overwrite(&vertices);
+        vulkan_context.index_buffer.overwrite(&import_state.indices);
+        vulkan_context
+            .vertex_buffer
+            .overwrite(&import_state.vertices);
     };
 
-    models
+    import_state.models
 }
 
 fn import_node(
     node: gltf::Node,
-    indices: &mut Vec<u32>,
-    vertices: &mut Vec<Vertex>,
-    buffers: &[gltf::buffer::Data],
-    models: &mut Vec<Model>,
-    index_offset: &mut u32,
-    vertex_offset: &mut u32,
+    import_state: &mut ImportState,
     parent_transform: &nalgebra_glm::TMat4<f32>,
-    images: &[gltf::image::Data],
 ) {
     let local_transform: TMat4<f32> = node.transform().matrix().into();
     let transform = parent_transform * &local_transform;
@@ -93,50 +102,28 @@ fn import_node(
         let mut primitives = Vec::new();
 
         for primitive in mesh.primitives() {
-            import_primitive(
-                primitive,
-                indices,
-                vertices,
-                &mut primitives,
-                index_offset,
-                vertex_offset,
-                buffers,
-                images,
-            );
+            import_primitive(primitive, &mut primitives, import_state);
         }
 
-        models.push(Model::new(name, transform, primitives));
+        import_state
+            .models
+            .push(Model::new(name, transform, primitives));
     }
 
     for node in node.children() {
-        import_node(
-            node,
-            indices,
-            vertices,
-            buffers,
-            models,
-            index_offset,
-            vertex_offset,
-            &local_transform,
-            images,
-        );
+        import_node(node, import_state, &local_transform);
     }
 }
 
 fn import_primitive(
     primitive: gltf::Primitive,
-    indices: &mut Vec<u32>,
-    vertices: &mut Vec<Vertex>,
     primitives: &mut Vec<Primitive>,
-    index_offset: &mut u32,
-    vertex_offset: &mut u32,
-    buffers: &[gltf::buffer::Data],
-    images: &[gltf::image::Data],
+    import_state: &mut ImportState,
 ) {
-    let (num_indices, num_vertices) = import_geometry(&primitive, indices, vertices, buffers);
+    let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
     primitives.push(Primitive {
-        index_offset: *index_offset,
-        vertex_offset: *vertex_offset,
+        index_offset: import_state.index_offset,
+        vertex_offset: import_state.vertex_offset,
         num_indices,
     });
 
@@ -145,33 +132,29 @@ fn import_primitive(
         .pbr_metallic_roughness()
         .base_color_texture()
     {
-        let image = &images[texture.texture().source().index()];
+        let image = &import_state.images[texture.texture().source().index()];
         let _pixels = &image.pixels;
 
         // TODO: Upload
     }
 
-    *index_offset += num_indices;
-    *vertex_offset += num_vertices;
+    import_state.index_offset += num_indices;
+    import_state.vertex_offset += num_vertices;
 }
 
-fn import_geometry(
-    primitive: &gltf::Primitive,
-    indices: &mut Vec<u32>,
-    vertices: &mut Vec<Vertex>,
-    buffers: &[gltf::buffer::Data],
-) -> (u32, u32) {
+fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) -> (u32, u32) {
+    let buffers = &import_state.buffers;
     let reader = primitive.reader(|b| Some(&buffers[b.index()]));
     let mut num_indices = 0;
     let mut num_vertices = 0;
     for i in reader.read_indices().unwrap().into_u32() {
         num_indices += 1;
-        indices.push(i);
+        import_state.indices.push(i);
     }
     if let Some(colours) = reader.read_colors(0) {
         for (colour, position) in colours.into_rgb_f32().zip(reader.read_positions().unwrap()) {
             num_vertices += 1;
-            vertices.push(Vertex::new_coloured(
+            import_state.vertices.push(Vertex::new_coloured(
                 position[0],
                 position[1],
                 position[2],
@@ -183,7 +166,9 @@ fn import_geometry(
     } else {
         for position in reader.read_positions().unwrap() {
             num_vertices += 1;
-            vertices.push(Vertex::new(position[0], position[1], position[2]));
+            import_state
+                .vertices
+                .push(Vertex::new(position[0], position[1], position[2]));
         }
     }
     (num_indices, num_vertices)
