@@ -38,7 +38,7 @@ pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
-    let (gltf, buffers, _images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
+    let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
     let mut models = Vec::new();
     let mut index_offset = 0;
     let mut vertex_offset = 0;
@@ -54,6 +54,7 @@ pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
                 &mut index_offset,
                 &mut vertex_offset,
                 &nalgebra_glm::identity(),
+                &images,
             );
         }
     }
@@ -76,6 +77,7 @@ fn import_node(
     index_offset: &mut u32,
     vertex_offset: &mut u32,
     parent_transform: &nalgebra_glm::TMat4<f32>,
+    images: &[gltf::image::Data],
 ) {
     let local_transform: TMat4<f32> = node.transform().matrix().into();
     let transform = parent_transform * &local_transform;
@@ -91,47 +93,16 @@ fn import_node(
         let mut primitives = Vec::new();
 
         for primitive in mesh.primitives() {
-            let reader = primitive.reader(|b| Some(&buffers[b.index()]));
-            let mut num_indices = 0;
-            let mut num_vertices = 0;
-            for i in reader.read_indices().unwrap().into_u32() {
-                num_indices += 1;
-                indices.push(i);
-            }
-
-            if let Some(colours) = reader.read_colors(0) {
-                for (colour, position) in
-                    colours.into_rgb_f32().zip(reader.read_positions().unwrap())
-                {
-                    num_vertices += 1;
-                    vertices.push(Vertex::new_coloured(
-                        position[0],
-                        position[1],
-                        position[2],
-                        colour[0],
-                        colour[1],
-                        colour[2],
-                    ));
-                }
-            } else {
-                for position in reader.read_positions().unwrap() {
-                    num_vertices += 1;
-                    vertices.push(Vertex::new(position[0], position[1], position[2]));
-                }
-            }
-
-            primitives.push(Primitive {
-                index_offset: *index_offset,
-                vertex_offset: *vertex_offset,
-                num_indices,
-            });
-
-            assert_eq!(indices.len(), (*index_offset + num_indices) as usize);
-            assert_eq!(vertices.len(), (*vertex_offset + num_vertices) as usize);
-
-            *index_offset += num_indices;
-            *vertex_offset += num_vertices;
-            println!("Offset is now: {}", index_offset);
+            import_primitive(
+                primitive,
+                indices,
+                vertices,
+                &mut primitives,
+                index_offset,
+                vertex_offset,
+                buffers,
+                images,
+            );
         }
 
         models.push(Model::new(name, transform, primitives));
@@ -147,8 +118,75 @@ fn import_node(
             index_offset,
             vertex_offset,
             &local_transform,
+            images,
         );
     }
+}
+
+fn import_primitive(
+    primitive: gltf::Primitive,
+    indices: &mut Vec<u32>,
+    vertices: &mut Vec<Vertex>,
+    primitives: &mut Vec<Primitive>,
+    index_offset: &mut u32,
+    vertex_offset: &mut u32,
+    buffers: &[gltf::buffer::Data],
+    images: &[gltf::image::Data],
+) {
+    let (num_indices, num_vertices) = import_geometry(&primitive, indices, vertices, buffers);
+    primitives.push(Primitive {
+        index_offset: *index_offset,
+        vertex_offset: *vertex_offset,
+        num_indices,
+    });
+
+    if let Some(texture) = primitive
+        .material()
+        .pbr_metallic_roughness()
+        .base_color_texture()
+    {
+        let image = &images[texture.texture().source().index()];
+        let _pixels = &image.pixels;
+
+        // TODO: Upload
+    }
+
+    *index_offset += num_indices;
+    *vertex_offset += num_vertices;
+}
+
+fn import_geometry(
+    primitive: &gltf::Primitive,
+    indices: &mut Vec<u32>,
+    vertices: &mut Vec<Vertex>,
+    buffers: &[gltf::buffer::Data],
+) -> (u32, u32) {
+    let reader = primitive.reader(|b| Some(&buffers[b.index()]));
+    let mut num_indices = 0;
+    let mut num_vertices = 0;
+    for i in reader.read_indices().unwrap().into_u32() {
+        num_indices += 1;
+        indices.push(i);
+    }
+    if let Some(colours) = reader.read_colors(0) {
+        for (colour, position) in colours.into_rgb_f32().zip(reader.read_positions().unwrap()) {
+            num_vertices += 1;
+            vertices.push(Vertex::new_coloured(
+                position[0],
+                position[1],
+                position[2],
+                colour[0],
+                colour[1],
+                colour[2],
+            ));
+        }
+    } else {
+        for position in reader.read_positions().unwrap() {
+            num_vertices += 1;
+            vertices.push(Vertex::new(position[0], position[1], position[2]));
+        }
+    }
+    (num_indices, num_vertices)
 }
 
 pub struct VertexInputDescription {
