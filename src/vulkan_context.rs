@@ -1,4 +1,5 @@
 use crate::{
+    frame::Frame,
     image::{Image, DEPTH_FORMAT},
     model::{import_models, Model, Vertex},
     swapchain::Swapchain,
@@ -56,6 +57,7 @@ pub struct VulkanContext {
     pub pipeline_layout: vk::PipelineLayout,
     pub depth_image: Image,
     pub models: Vec<Model>,
+    pub frames: Vec<Frame>,
 }
 
 impl VulkanContext {
@@ -113,6 +115,8 @@ impl VulkanContext {
                 descriptor_set_layout,
             );
 
+            let frames = Vec::new();
+
             Self {
                 entry,
                 instance,
@@ -135,6 +139,7 @@ impl VulkanContext {
                 pipeline_layout,
                 depth_image,
                 models,
+                frames,
             }
         }
     }
@@ -152,8 +157,8 @@ impl VulkanContext {
             SelectedPipeline::Colored => &self.colored_pipeline,
         };
 
-        let index_buffer = &self.index_buffer;
-        let vertex_buffer = &self.vertex_buffer;
+        let index_buffer = self.index_buffer.buffer;
+        let vertex_buffer = self.vertex_buffer.buffer;
 
         let pipeline_layout = self.pipeline_layout;
         let _descriptor_sets = [self.vertex_buffer.descriptor_set];
@@ -222,16 +227,11 @@ impl VulkanContext {
         //     &descriptor_sets,
         //     &[],
         // );
-        device.cmd_bind_index_buffer(
-            command_buffer,
-            self.index_buffer.buffer,
-            0,
-            vk::IndexType::UINT32,
-        );
+        device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32);
         device.cmd_bind_vertex_buffers(
             command_buffer,
             0,
-            std::slice::from_ref(&vertex_buffer.buffer),
+            std::slice::from_ref(&vertex_buffer),
             &[0],
         );
 

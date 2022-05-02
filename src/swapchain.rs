@@ -41,6 +41,7 @@ impl Swapchain {
                     .image_format(format)
                     .surface(surface)
                     .min_image_count(3)
+                    .present_mode(vk::PresentModeKHR::FIFO)
                     .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT),
                 None,
             )
