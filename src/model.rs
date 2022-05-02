@@ -1,7 +1,7 @@
 use ash::vk;
 use nalgebra_glm::TMat4;
 
-use crate::vulkan_context::VulkanContext;
+use crate::{texture::Texture, vulkan_context::VulkanContext};
 
 #[derive(Debug)]
 pub struct Model {
@@ -35,10 +35,13 @@ pub struct Primitive {
     pub index_offset: u32,
     pub vertex_offset: u32,
     pub num_indices: u32,
+    pub material: Material,
 }
 
 #[derive(Debug)]
-pub struct ImportState {
+pub struct Material {}
+
+pub struct ImportState<'a> {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     index_offset: u32,
@@ -46,10 +49,15 @@ pub struct ImportState {
     buffers: Vec<gltf::buffer::Data>,
     images: Vec<gltf::image::Data>,
     models: Vec<Model>,
+    vulkan_context: &'a VulkanContext,
 }
 
-impl ImportState {
-    pub fn new(buffers: Vec<gltf::buffer::Data>, images: Vec<gltf::image::Data>) -> Self {
+impl<'a> ImportState<'a> {
+    pub fn new(
+        buffers: Vec<gltf::buffer::Data>,
+        images: Vec<gltf::image::Data>,
+        vulkan_context: &'a VulkanContext,
+    ) -> Self {
         Self {
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -58,13 +66,14 @@ impl ImportState {
             vertex_offset: 0,
             buffers,
             images,
+            vulkan_context,
         }
     }
 }
 
 pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
     let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
-    let mut import_state = ImportState::new(buffers, images);
+    let mut import_state = ImportState::new(buffers, images, vulkan_context);
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
@@ -121,25 +130,25 @@ fn import_primitive(
     import_state: &mut ImportState,
 ) {
     let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
+    let material = import_material(primitive.material(), import_state);
     primitives.push(Primitive {
         index_offset: import_state.index_offset,
         vertex_offset: import_state.vertex_offset,
         num_indices,
+        material,
     });
-
-    if let Some(texture) = primitive
-        .material()
-        .pbr_metallic_roughness()
-        .base_color_texture()
-    {
-        let image = &import_state.images[texture.texture().source().index()];
-        let _pixels = &image.pixels;
-
-        // TODO: Upload
-    }
 
     import_state.index_offset += num_indices;
     import_state.vertex_offset += num_vertices;
+}
+
+fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Material {
+    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
+        let image = &import_state.images[texture.texture().source().index()];
+        let _texture = unsafe { Texture::new(import_state.vulkan_context, image) };
+    }
+
+    Material {}
 }
 
 fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) -> (u32, u32) {
