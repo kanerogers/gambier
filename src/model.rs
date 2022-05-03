@@ -191,6 +191,7 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
     let mut normals = Vec::new();
     if let Some(normal_reader) = reader.read_normals() {
         for normal in normal_reader {
+            let normal = [normal[0], normal[1] * -1., normal[2]];
             normals.push(normal);
         }
     } else {
