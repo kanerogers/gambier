@@ -157,6 +157,5 @@ fn update_camera(camera_y_rot: f32, camera_pos: &nalgebra_glm::Vec3) -> nalgebra
     .try_inverse()
     .unwrap();
 
-    println!("Camera is now: {:?}", new);
     new
 }

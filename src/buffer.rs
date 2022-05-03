@@ -25,7 +25,8 @@ impl<T: Sized> Buffer<T> {
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
     ) -> Buffer<T> {
-        let size = (std::mem::size_of::<T>() * MAX_LEN) as vk::DeviceSize;
+        let size = std::mem::size_of::<T>() * MAX_LEN;
+        let size = size.max(std::mem::size_of::<T>() * initial_data.len()) as vk::DeviceSize;
         println!("Attempting to create buffer of {:?} bytes..", size);
         let buffer = device
             .create_buffer(
@@ -57,7 +58,7 @@ impl<T: Sized> Buffer<T> {
             .map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty())
             .unwrap();
 
-        println!("Copying vertices..");
+        println!("Copying data..");
         copy_nonoverlapping(
             initial_data.as_ptr(),
             std::mem::transmute(memory_address),

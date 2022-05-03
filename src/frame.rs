@@ -1,6 +1,6 @@
 use ash::vk;
 
-use crate::sync_structures::SyncStructures;
+use crate::{sync_structures::SyncStructures, vulkan_context::create_command_buffer};
 
 pub struct Frame {
     pub command_buffer: vk::CommandBuffer,
@@ -16,18 +16,4 @@ impl Frame {
             command_buffer,
         }
     }
-}
-
-unsafe fn create_command_buffer(
-    device: &ash::Device,
-    command_pool: vk::CommandPool,
-) -> vk::CommandBuffer {
-    device
-        .allocate_command_buffers(
-            &vk::CommandBufferAllocateInfo::builder()
-                .command_buffer_count(1)
-                .command_pool(command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY),
-        )
-        .unwrap()[0]
 }

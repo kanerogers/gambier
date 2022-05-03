@@ -49,17 +49,23 @@ impl Image {
 
         device.bind_image_memory(image, device_memory, 0).unwrap();
 
+        let aspect_mask = if format == DEPTH_FORMAT {
+            vk::ImageAspectFlags::DEPTH
+        } else {
+            vk::ImageAspectFlags::COLOR
+        };
+
         let view = device
             .create_image_view(
                 &vk::ImageViewCreateInfo::builder()
                     .subresource_range(vk::ImageSubresourceRange {
-                        aspect_mask: vk::ImageAspectFlags::DEPTH,
+                        aspect_mask,
                         level_count: 1,
                         layer_count: 1,
                         ..Default::default()
                     })
                     .image(image)
-                    .format(DEPTH_FORMAT)
+                    .format(format)
                     .view_type(vk::ImageViewType::TYPE_2D),
                 None,
             )

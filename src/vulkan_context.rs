@@ -42,6 +42,8 @@ pub struct VulkanContext {
     pub device: ash::Device,
     pub swapchain: Swapchain,
     pub command_pool: vk::CommandPool,
+    pub work_command_buffer: vk::CommandBuffer,
+    pub work_fence: vk::Fence,
     pub render_pass: vk::RenderPass,
     pub swapchain_images: Vec<vk::Image>,
     pub swapchain_image_views: Vec<vk::ImageView>,
@@ -81,6 +83,10 @@ impl VulkanContext {
             );
 
             let command_pool = create_command_pool(&device, queue_family_index);
+            let work_command_buffer = create_command_buffer(&device, command_pool);
+            let work_fence = device
+                .create_fence(&vk::FenceCreateInfo::builder(), None)
+                .unwrap();
             let frames = (0..3).map(|_| Frame::new(&device, command_pool)).collect();
             let render_pass = create_render_pass(&device, &swapchain);
             let (descriptor_set_layout, pipeline_layout) = create_descriptor_layouts(&device);
@@ -130,6 +136,8 @@ impl VulkanContext {
                 device,
                 swapchain,
                 command_pool,
+                work_command_buffer,
+                work_fence,
                 render_pass,
                 swapchain_images,
                 swapchain_image_views,
@@ -289,6 +297,55 @@ impl VulkanContext {
 
         self.frame_index = (self.frame_index + 1) % 3;
     }
+
+    pub unsafe fn one_time_work<F>(&self, work: F) -> ()
+    where
+        F: FnOnce(&ash::Device, vk::CommandBuffer),
+    {
+        let device = &self.device;
+        let command_buffer = self.work_command_buffer;
+        let fence = self.work_fence;
+
+        device
+            .begin_command_buffer(
+                command_buffer,
+                &vk::CommandBufferBeginInfo::builder()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )
+            .unwrap();
+
+        work(device, command_buffer);
+        device.end_command_buffer(command_buffer).unwrap();
+
+        let submit_info =
+            vk::SubmitInfo::builder().command_buffers(std::slice::from_ref(&command_buffer));
+        device
+            .queue_submit(
+                self.present_queue,
+                std::slice::from_ref(&submit_info),
+                fence,
+            )
+            .unwrap();
+
+        device
+            .wait_for_fences(std::slice::from_ref(&fence), true, 1_000_000_000)
+            .unwrap();
+        device.reset_fences(std::slice::from_ref(&fence)).unwrap();
+    }
+}
+
+pub unsafe fn create_command_buffer(
+    device: &ash::Device,
+    command_pool: vk::CommandPool,
+) -> vk::CommandBuffer {
+    device
+        .allocate_command_buffers(
+            &vk::CommandBufferAllocateInfo::builder()
+                .command_buffer_count(1)
+                .command_pool(command_pool)
+                .level(vk::CommandBufferLevel::PRIMARY),
+        )
+        .unwrap()[0]
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
