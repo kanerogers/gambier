@@ -177,31 +177,47 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
     let buffers = &import_state.buffers;
     let reader = primitive.reader(|b| Some(&buffers[b.index()]));
     let mut num_indices = 0;
-    let mut num_vertices = 0;
     for i in reader.read_indices().unwrap().into_u32() {
         num_indices += 1;
         import_state.indices.push(i);
     }
-    if let Some(colours) = reader.read_colors(0) {
-        for (colour, position) in colours.into_rgb_f32().zip(reader.read_positions().unwrap()) {
-            num_vertices += 1;
-            import_state.vertices.push(Vertex::new_coloured(
-                position[0],
-                position[1],
-                position[2],
-                colour[0],
-                colour[1],
-                colour[2],
-            ));
+
+    let mut positions = Vec::new();
+    for position in reader.read_positions().unwrap() {
+        positions.push(position);
+    }
+    let num_vertices = positions.len() as _;
+
+    let mut uvs = Vec::new();
+    if let Some(tex_coords) = reader.read_tex_coords(0) {
+        for uv in tex_coords.into_f32() {
+            uvs.push(uv);
         }
     } else {
-        for position in reader.read_positions().unwrap() {
-            num_vertices += 1;
-            import_state
-                .vertices
-                .push(Vertex::new(position[0], position[1], position[2]));
+        for _ in 0..num_vertices {
+            uvs.push([0., 0.]);
         }
     }
+
+    let mut colours = Vec::new();
+    if let Some(colour_reader) = reader.read_colors(0) {
+        for colour in colour_reader.into_rgb_f32() {
+            colours.push(colour);
+        }
+    } else {
+        for _ in 0..num_vertices {
+            colours.push([0., 0., 0.]);
+        }
+    }
+
+    for ((position, uv), colour) in positions.drain(..).zip(uvs).zip(colours) {
+        import_state.vertices.push(Vertex {
+            position,
+            uv,
+            colour,
+        })
+    }
+
     (num_indices, num_vertices)
 }
 
@@ -213,12 +229,9 @@ pub struct VertexInputDescription {
 #[repr(C, align(16))]
 #[derive(Debug, Clone)]
 pub struct Vertex {
-    vx: f32,
-    vy: f32,
-    vz: f32,
-    r: f32,
-    g: f32,
-    b: f32,
+    position: [f32; 3],
+    colour: [f32; 3],
+    uv: [f32; 2],
 }
 
 impl Vertex {
@@ -242,41 +255,13 @@ impl Vertex {
                     format: vk::Format::R32G32B32_SFLOAT,
                     offset: (std::mem::size_of::<f32>() * 3) as u32,
                 },
+                vk::VertexInputAttributeDescription {
+                    binding: 0,
+                    location: 2,
+                    format: vk::Format::R32G32_SFLOAT,
+                    offset: (std::mem::size_of::<f32>() * 6) as u32,
+                },
             ],
-        }
-    }
-
-    pub fn new(vx: f32, vy: f32, vz: f32) -> Self {
-        Self {
-            vx,
-            vy,
-            vz,
-            ..Default::default()
-        }
-    }
-
-    pub fn new_coloured(vx: f32, vy: f32, vz: f32, r: f32, g: f32, b: f32) -> Self {
-        Self {
-            vx,
-            vy,
-            vz,
-            r,
-            g,
-            b,
-            ..Default::default()
-        }
-    }
-}
-
-impl Default for Vertex {
-    fn default() -> Self {
-        Self {
-            vx: 0.,
-            vy: 0.,
-            vz: 0.,
-            r: 1.,
-            g: 1.,
-            b: 1.,
         }
     }
 }
