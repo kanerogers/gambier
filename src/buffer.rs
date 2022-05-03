@@ -13,7 +13,7 @@ pub struct Buffer<T: Sized> {
     _usage: vk::BufferUsageFlags,
 }
 
-static MAX_LEN: usize = 1024 * 1024;
+static MAX_LEN: usize = 1024 * 1024 * 50;
 
 impl<T: Sized> Buffer<T> {
     pub unsafe fn new(

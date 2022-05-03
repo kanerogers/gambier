@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Cursor};
 
 use id_arena::{Arena, Id};
 use nalgebra_glm::TMat4;
@@ -45,7 +45,7 @@ pub struct ImportState<'a> {
     indices: Vec<u32>,
     index_offset: u32,
     vertex_offset: u32,
-    buffers: Vec<gltf::buffer::Data>,
+    buffers: Vec<&'a [u8]>,
     images: Vec<gltf::image::Data>,
     models: Vec<Model>,
     vulkan_context: &'a VulkanContext,
@@ -57,7 +57,7 @@ pub struct ImportState<'a> {
 
 impl<'a> ImportState<'a> {
     pub fn new(
-        buffers: Vec<gltf::buffer::Data>,
+        buffers: Vec<&'a [u8]>,
         images: Vec<gltf::image::Data>,
         vulkan_context: &'a VulkanContext,
     ) -> Self {
@@ -79,14 +79,18 @@ impl<'a> ImportState<'a> {
 }
 
 pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>, Arena<Material>) {
-    let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
+    let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
+    let buffer = gltf.blob.as_ref().unwrap().as_slice();
+    let buffers = vec![buffer];
+    let images = Vec::new();
     let mut import_state = ImportState::new(buffers, images, vulkan_context);
 
     for material in gltf.materials() {
         if let Some(index) = material.index() {
-            let material = import_material(material, &mut import_state);
-            let id = import_state.materials.alloc(material);
-            import_state.material_ids.insert(index, id);
+            if let Some(material) = import_material(material, &mut import_state) {
+                let id = import_state.materials.alloc(material);
+                import_state.material_ids.insert(index, id);
+            }
         }
     }
 
@@ -151,33 +155,40 @@ fn import_primitive(
 ) {
     if let Some(material_index) = primitive.material().index() {
         let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
-        let material = import_state
-            .material_ids
-            .get(&material_index)
-            .unwrap()
-            .clone();
-
-        primitives.push(Primitive {
-            index_offset: import_state.index_offset,
-            vertex_offset: import_state.vertex_offset,
-            num_indices,
-            material,
-        });
+        if let Some(material) = import_state.material_ids.get(&material_index).cloned() {
+            primitives.push(Primitive {
+                index_offset: import_state.index_offset,
+                vertex_offset: import_state.vertex_offset,
+                num_indices,
+                material,
+            });
+        }
 
         import_state.index_offset += num_indices;
         import_state.vertex_offset += num_vertices;
     }
 }
 
-fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Material {
-    let texture = material
-        .pbr_metallic_roughness()
-        .base_color_texture()
-        .unwrap();
-    let image = &import_state.images[texture.texture().source().index()];
-    let base_colour = unsafe { Texture::new(import_state.vulkan_context, image) };
+fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Option<Material> {
+    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
+        match texture.texture().source().source() {
+            gltf::image::Source::View { view, mime_type } => {
+                let buffer = import_state.buffers[0];
+                let offset = view.offset();
+                let length = view.length();
+                let data = &buffer[offset..offset + length];
 
-    Material { base_colour }
+                let mut image = image::io::Reader::new(Cursor::new(data));
+                image.set_format(image::ImageFormat::Png);
+                let image = image.decode().unwrap();
+                let base_colour = unsafe { Texture::new(import_state.vulkan_context, image) };
+                Some(Material { base_colour })
+            }
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
 
 fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) -> (u32, u32) {

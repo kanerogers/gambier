@@ -1,5 +1,5 @@
 use ash::vk;
-use image::{DynamicImage, ImageBuffer};
+use image::{DynamicImage, EncodableLayout, ImageBuffer};
 
 use crate::{buffer::Buffer, image::Image, vulkan_context::VulkanContext};
 
@@ -9,28 +9,28 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub unsafe fn new(vulkan_context: &VulkanContext, image: &gltf::image::Data) -> Self {
+    pub unsafe fn new(vulkan_context: &VulkanContext, image: image::DynamicImage) -> Self {
         let device = &vulkan_context.device;
         let instance = &vulkan_context.instance;
         let physical_device = vulkan_context.physical_device;
         let descriptor_pool = vulkan_context.descriptor_pool;
         let descriptor_set_layout = vulkan_context.descriptor_set_layout;
         let extent = vk::Extent3D {
-            width: image.width,
-            height: image.height,
+            width: image.width(),
+            height: image.height(),
             depth: 1,
         };
 
-        if image.format == gltf::image::Format::R8G8B8 {}
-
         println!("Creating scratch buffer..");
+        let image_data = image.into_rgba8();
+        let image_data = image_data.as_bytes();
         let scratch_buffer = create_scratch_buffer(
             device,
             instance,
             physical_device,
             descriptor_pool,
             descriptor_set_layout,
-            image,
+            image_data,
         );
 
         let image = Image::new(
@@ -104,30 +104,8 @@ unsafe fn create_scratch_buffer(
     physical_device: vk::PhysicalDevice,
     descriptor_pool: vk::DescriptorPool,
     descriptor_set_layout: vk::DescriptorSetLayout,
-    image: &gltf::image::Data,
+    data: &[u8],
 ) -> Buffer<u8> {
-    if image.format == gltf::image::Format::R8G8B8A8 {
-        return Buffer::new(
-            device,
-            instance,
-            physical_device,
-            descriptor_pool,
-            descriptor_set_layout,
-            &image.pixels,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-        );
-    }
-
-    let mut data = image.pixels.iter();
-    let image_buffer = ImageBuffer::from_fn(image.width, image.height, |_, _| {
-        let r = data.next().unwrap();
-        let g = data.next().unwrap();
-        let b = data.next().unwrap();
-        image::Rgb([*r, *g, *b])
-    });
-
-    let converted_image = DynamicImage::ImageRgb8(image_buffer).into_rgba8();
-    let data = converted_image.as_raw();
     return Buffer::new(
         device,
         instance,
