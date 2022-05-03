@@ -1,5 +1,5 @@
 use ash::vk;
-use image::{DynamicImage, EncodableLayout, ImageBuffer};
+use image::EncodableLayout;
 
 use crate::{buffer::Buffer, image::Image, vulkan_context::VulkanContext};
 

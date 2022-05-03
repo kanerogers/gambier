@@ -46,7 +46,6 @@ pub struct ImportState<'a> {
     index_offset: u32,
     vertex_offset: u32,
     buffers: Vec<&'a [u8]>,
-    images: Vec<gltf::image::Data>,
     models: Vec<Model>,
     vulkan_context: &'a VulkanContext,
     meshes: Arena<Mesh>,
@@ -56,11 +55,7 @@ pub struct ImportState<'a> {
 }
 
 impl<'a> ImportState<'a> {
-    pub fn new(
-        buffers: Vec<&'a [u8]>,
-        images: Vec<gltf::image::Data>,
-        vulkan_context: &'a VulkanContext,
-    ) -> Self {
+    pub fn new(buffers: Vec<&'a [u8]>, vulkan_context: &'a VulkanContext) -> Self {
         Self {
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -68,7 +63,6 @@ impl<'a> ImportState<'a> {
             index_offset: 0,
             vertex_offset: 0,
             buffers,
-            images,
             vulkan_context,
             meshes: Arena::new(),
             mesh_ids: HashMap::new(),
@@ -82,8 +76,7 @@ pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>
     let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
     let buffer = gltf.blob.as_ref().unwrap().as_slice();
     let buffers = vec![buffer];
-    let images = Vec::new();
-    let mut import_state = ImportState::new(buffers, images, vulkan_context);
+    let mut import_state = ImportState::new(buffers, vulkan_context);
 
     for material in gltf.materials() {
         if let Some(index) = material.index() {
@@ -172,7 +165,7 @@ fn import_primitive(
 fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Option<Material> {
     if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
         match texture.texture().source().source() {
-            gltf::image::Source::View { view, mime_type } => {
+            gltf::image::Source::View { view, .. } => {
                 let buffer = import_state.buffers[0];
                 let offset = view.offset();
                 let length = view.length();
