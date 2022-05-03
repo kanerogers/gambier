@@ -33,7 +33,7 @@ pub struct Primitive {
     pub index_offset: u32,
     pub vertex_offset: u32,
     pub num_indices: u32,
-    pub material: Material,
+    pub material: Id<Material>,
 }
 
 #[derive(Debug)]
@@ -50,6 +50,8 @@ pub struct ImportState<'a> {
     vulkan_context: &'a VulkanContext,
     meshes: Arena<Mesh>,
     mesh_ids: HashMap<usize, Id<Mesh>>,
+    materials: Arena<Material>,
+    material_ids: HashMap<usize, Id<Material>>,
 }
 
 impl<'a> ImportState<'a> {
@@ -69,6 +71,8 @@ impl<'a> ImportState<'a> {
             vulkan_context,
             meshes: Arena::new(),
             mesh_ids: HashMap::new(),
+            materials: Arena::new(),
+            material_ids: HashMap::new(),
         }
     }
 }
@@ -76,6 +80,14 @@ impl<'a> ImportState<'a> {
 pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>) {
     let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
     let mut import_state = ImportState::new(buffers, images, vulkan_context);
+
+    for material in gltf.materials() {
+        if let Some(index) = material.index() {
+            let material = import_material(material, &mut import_state);
+            let id = import_state.materials.alloc(material);
+            import_state.material_ids.insert(index, id);
+        }
+    }
 
     for mesh in gltf.meshes() {
         let mut primitives = Vec::new();
@@ -132,17 +144,24 @@ fn import_primitive(
     primitives: &mut Vec<Primitive>,
     import_state: &mut ImportState,
 ) {
-    let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
-    let material = import_material(primitive.material(), import_state);
-    primitives.push(Primitive {
-        index_offset: import_state.index_offset,
-        vertex_offset: import_state.vertex_offset,
-        num_indices,
-        material,
-    });
+    if let Some(material_index) = primitive.material().index() {
+        let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
+        let material = import_state
+            .material_ids
+            .get(&material_index)
+            .unwrap()
+            .clone();
 
-    import_state.index_offset += num_indices;
-    import_state.vertex_offset += num_vertices;
+        primitives.push(Primitive {
+            index_offset: import_state.index_offset,
+            vertex_offset: import_state.vertex_offset,
+            num_indices,
+            material,
+        });
+
+        import_state.index_offset += num_indices;
+        import_state.vertex_offset += num_vertices;
+    }
 }
 
 fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Material {
