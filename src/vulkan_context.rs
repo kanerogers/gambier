@@ -1,7 +1,7 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::{Mesh, Model},
+    model::{Material, Mesh, Model},
     swapchain::Swapchain,
     vertex::Vertex,
 };
@@ -158,7 +158,13 @@ impl VulkanContext {
         }
     }
 
-    pub unsafe fn render(&mut self, models: &[Model], meshes: &Arena<Mesh>, globals: &mut Globals) {
+    pub unsafe fn render(
+        &mut self,
+        models: &[Model],
+        meshes: &Arena<Mesh>,
+        materials: &Arena<Material>,
+        globals: &mut Globals,
+    ) {
         let frame = &self.frames[self.frame_index];
         let sync_structures = &frame.sync_structures;
         let render_fence = &sync_structures.render_fence;
@@ -234,14 +240,6 @@ impl VulkanContext {
         );
 
         device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, *pipeline);
-        // device.cmd_bind_descriptor_sets(
-        //     *command_buffer,
-        //     vk::PipelineBindPoint::GRAPHICS,
-        //     pipeline_layout,
-        //     0,
-        //     &descriptor_sets,
-        //     &[],
-        // );
         device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32);
         device.cmd_bind_vertex_buffers(
             command_buffer,
@@ -253,6 +251,16 @@ impl VulkanContext {
         for model in models {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
+                let material = materials.get(primitive.material).unwrap();
+                device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    pipeline_layout,
+                    0,
+                    &[material.base_colour.descriptor_set],
+                    &[],
+                );
+
                 globals.model = model.transform;
                 device.cmd_push_constants(
                     command_buffer,
@@ -352,10 +360,16 @@ pub unsafe fn create_command_buffer(
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
-    let pool_sizes = [vk::DescriptorPoolSize {
-        ty: vk::DescriptorType::STORAGE_BUFFER,
-        descriptor_count: 1,
-    }];
+    let pool_sizes = [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1000,
+        },
+    ];
     device
         .create_descriptor_pool(
             &vk::DescriptorPoolCreateInfo::builder()
@@ -369,13 +383,22 @@ unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
 unsafe fn create_descriptor_layouts(
     device: &ash::Device,
 ) -> (vk::DescriptorSetLayout, vk::PipelineLayout) {
-    let bindings = [vk::DescriptorSetLayoutBinding {
-        binding: 0,
-        descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
-        stage_flags: vk::ShaderStageFlags::VERTEX,
-        descriptor_count: 1,
-        ..Default::default()
-    }];
+    let bindings = [
+        vk::DescriptorSetLayoutBinding {
+            binding: 0,
+            descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            descriptor_count: 1,
+            ..Default::default()
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 1,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            descriptor_count: 1,
+            ..Default::default()
+        },
+    ];
 
     let descriptor_set_layout = device
         .create_descriptor_set_layout(

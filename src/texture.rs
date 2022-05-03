@@ -3,7 +3,10 @@ use image::{DynamicImage, ImageBuffer};
 
 use crate::{buffer::Buffer, image::Image, vulkan_context::VulkanContext};
 
-pub struct Texture {}
+#[derive(Debug)]
+pub struct Texture {
+    pub descriptor_set: vk::DescriptorSet,
+}
 
 impl Texture {
     pub unsafe fn new(vulkan_context: &VulkanContext, image: &gltf::image::Data) -> Self {
@@ -55,7 +58,43 @@ impl Texture {
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         );
 
-        Self {}
+        let filter = vk::Filter::LINEAR;
+        let address_mode = vk::SamplerAddressMode::REPEAT;
+
+        let sampler = device
+            .create_sampler(
+                &vk::SamplerCreateInfo::builder()
+                    .mag_filter(filter)
+                    .min_filter(filter)
+                    .address_mode_u(address_mode)
+                    .address_mode_v(address_mode)
+                    .address_mode_w(address_mode),
+                None,
+            )
+            .unwrap();
+
+        let descriptor_set = device
+            .allocate_descriptor_sets(
+                &vk::DescriptorSetAllocateInfo::builder()
+                    .descriptor_pool(descriptor_pool)
+                    .set_layouts(&[descriptor_set_layout]),
+            )
+            .unwrap()[0];
+
+        let image_info = vk::DescriptorImageInfo::builder()
+            .sampler(sampler)
+            .image_view(image.view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+
+        let write = vk::WriteDescriptorSet::builder()
+            .image_info(std::slice::from_ref(&image_info))
+            .dst_set(descriptor_set)
+            .dst_binding(1)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER);
+
+        device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
+
+        Self { descriptor_set }
     }
 }
 

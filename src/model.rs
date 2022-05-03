@@ -37,7 +37,9 @@ pub struct Primitive {
 }
 
 #[derive(Debug)]
-pub struct Material {}
+pub struct Material {
+    pub base_colour: Texture,
+}
 
 pub struct ImportState<'a> {
     vertices: Vec<Vertex>,
@@ -77,7 +79,7 @@ impl<'a> ImportState<'a> {
     }
 }
 
-pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>) {
+pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>, Arena<Material>) {
     let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
     let mut import_state = ImportState::new(buffers, images, vulkan_context);
 
@@ -113,7 +115,11 @@ pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>
             .overwrite(&import_state.vertices);
     };
 
-    (import_state.models, import_state.meshes)
+    (
+        import_state.models,
+        import_state.meshes,
+        import_state.materials,
+    )
 }
 
 fn import_node(
@@ -165,12 +171,14 @@ fn import_primitive(
 }
 
 fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Material {
-    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
-        let image = &import_state.images[texture.texture().source().index()];
-        let _texture = unsafe { Texture::new(import_state.vulkan_context, image) };
-    }
+    let texture = material
+        .pbr_metallic_roughness()
+        .base_color_texture()
+        .unwrap();
+    let image = &import_state.images[texture.texture().source().index()];
+    let base_colour = unsafe { Texture::new(import_state.vulkan_context, image) };
 
-    Material {}
+    Material { base_colour }
 }
 
 fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) -> (u32, u32) {
