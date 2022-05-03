@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use ash::vk;
 use id_arena::{Arena, Id};
 use nalgebra_glm::TMat4;
 
