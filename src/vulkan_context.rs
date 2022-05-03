@@ -1,10 +1,11 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::{Model, Vertex},
+    model::{Mesh, Model, Vertex},
     swapchain::Swapchain,
 };
 use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
+use id_arena::Arena;
 use nalgebra_glm::TMat4x4;
 use std::ffi::{CStr, CString};
 use vk_shader_macros::include_glsl;
@@ -156,7 +157,7 @@ impl VulkanContext {
         }
     }
 
-    pub unsafe fn render(&mut self, models: &[Model], globals: &mut Globals) {
+    pub unsafe fn render(&mut self, models: &[Model], meshes: &Arena<Mesh>, globals: &mut Globals) {
         let frame = &self.frames[self.frame_index];
         let sync_structures = &frame.sync_structures;
         let render_fence = &sync_structures.render_fence;
@@ -249,7 +250,8 @@ impl VulkanContext {
         );
 
         for model in models {
-            for primitive in &model.mesh.primitives {
+            let mesh = meshes.get(model.mesh).unwrap();
+            for primitive in &mesh.primitives {
                 globals.model = model.transform;
                 device.cmd_push_constants(
                     command_buffer,

@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use ash::vk;
 use image::{DynamicImage, ImageBuffer};
 

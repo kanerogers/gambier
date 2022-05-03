@@ -35,7 +35,7 @@ fn main() {
         model,
     };
     let mut last_frame_time = Instant::now();
-    let models = import_models(&vulkan_context);
+    let (models, meshes) = import_models(&vulkan_context);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -100,7 +100,7 @@ fn main() {
             }
 
             winit::event::Event::MainEventsCleared => unsafe {
-                vulkan_context.render(&models, &mut globals);
+                vulkan_context.render(&models, &meshes, &mut globals);
                 last_frame_time = Instant::now();
             },
             _ => {}

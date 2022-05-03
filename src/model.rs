@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use ash::vk;
+use id_arena::{Arena, Id};
 use nalgebra_glm::TMat4;
 
 use crate::{texture::Texture, vulkan_context::VulkanContext};
@@ -7,16 +10,11 @@ use crate::{texture::Texture, vulkan_context::VulkanContext};
 pub struct Model {
     pub name: String,
     pub transform: nalgebra_glm::TMat4<f32>,
-    pub mesh: Mesh,
+    pub mesh: Id<Mesh>,
 }
 
 impl Model {
-    pub fn new(
-        name: String,
-        transform: nalgebra_glm::TMat4<f32>,
-        primitives: Vec<Primitive>,
-    ) -> Self {
-        let mesh = Mesh { primitives };
+    pub fn new(name: String, transform: nalgebra_glm::TMat4<f32>, mesh: Id<Mesh>) -> Self {
         Self {
             name,
             transform,
@@ -50,6 +48,8 @@ pub struct ImportState<'a> {
     images: Vec<gltf::image::Data>,
     models: Vec<Model>,
     vulkan_context: &'a VulkanContext,
+    meshes: Arena<Mesh>,
+    mesh_ids: HashMap<usize, Id<Mesh>>,
 }
 
 impl<'a> ImportState<'a> {
@@ -67,13 +67,25 @@ impl<'a> ImportState<'a> {
             buffers,
             images,
             vulkan_context,
+            meshes: Arena::new(),
+            mesh_ids: HashMap::new(),
         }
     }
 }
 
-pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
+pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>) {
     let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
     let mut import_state = ImportState::new(buffers, images, vulkan_context);
+
+    for mesh in gltf.meshes() {
+        let mut primitives = Vec::new();
+        for primitive in mesh.primitives() {
+            import_primitive(primitive, &mut primitives, &mut import_state);
+        }
+
+        let id = import_state.meshes.alloc(Mesh { primitives });
+        import_state.mesh_ids.insert(mesh.index(), id);
+    }
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
@@ -89,7 +101,7 @@ pub fn import_models(vulkan_context: &VulkanContext) -> Vec<Model> {
             .overwrite(&import_state.vertices);
     };
 
-    import_state.models
+    (import_state.models, import_state.meshes)
 }
 
 fn import_node(
@@ -105,18 +117,9 @@ fn import_node(
         format!("Node {}", node.index())
     };
 
-    println!("Importing {} with transform {:?}", name, local_transform);
-
     if let Some(mesh) = node.mesh() {
-        let mut primitives = Vec::new();
-
-        for primitive in mesh.primitives() {
-            import_primitive(primitive, &mut primitives, import_state);
-        }
-
-        import_state
-            .models
-            .push(Model::new(name, transform, primitives));
+        let mesh = import_state.mesh_ids.get(&mesh.index()).unwrap().clone();
+        import_state.models.push(Model::new(name, transform, mesh));
     }
 
     for node in node.children() {
