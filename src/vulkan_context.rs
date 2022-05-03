@@ -1,8 +1,9 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::{Mesh, Model, Vertex},
+    model::{Mesh, Model},
     swapchain::Swapchain,
+    vertex::Vertex,
 };
 use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
 use id_arena::Arena;

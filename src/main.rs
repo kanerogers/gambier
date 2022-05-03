@@ -6,6 +6,7 @@ pub mod model;
 pub mod swapchain;
 pub mod sync_structures;
 pub mod texture;
+pub mod vertex;
 pub mod vulkan_context;
 
 use std::time::Instant;

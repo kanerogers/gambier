@@ -4,7 +4,7 @@ use ash::vk;
 use id_arena::{Arena, Id};
 use nalgebra_glm::TMat4;
 
-use crate::{texture::Texture, vulkan_context::VulkanContext};
+use crate::{texture::Texture, vertex::Vertex, vulkan_context::VulkanContext};
 
 #[derive(Debug)]
 pub struct Model {
@@ -188,6 +188,17 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
     }
     let num_vertices = positions.len() as _;
 
+    let mut normals = Vec::new();
+    if let Some(normal_reader) = reader.read_normals() {
+        for normal in normal_reader {
+            normals.push(normal);
+        }
+    } else {
+        for _ in 0..num_vertices {
+            normals.push([0., 0., 0.]);
+        }
+    }
+
     let mut uvs = Vec::new();
     if let Some(tex_coords) = reader.read_tex_coords(0) {
         for uv in tex_coords.into_f32() {
@@ -210,58 +221,15 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
         }
     }
 
-    for ((position, uv), colour) in positions.drain(..).zip(uvs).zip(colours) {
+    for (((position, uv), colour), normal) in positions.drain(..).zip(uvs).zip(colours).zip(normals)
+    {
         import_state.vertices.push(Vertex {
             position,
-            uv,
             colour,
+            normal,
+            uv,
         })
     }
 
     (num_indices, num_vertices)
-}
-
-pub struct VertexInputDescription {
-    pub bindings: Vec<vk::VertexInputBindingDescription>,
-    pub attributes: Vec<vk::VertexInputAttributeDescription>,
-}
-
-#[repr(C, align(16))]
-#[derive(Debug, Clone)]
-pub struct Vertex {
-    position: [f32; 3],
-    colour: [f32; 3],
-    uv: [f32; 2],
-}
-
-impl Vertex {
-    pub fn description() -> VertexInputDescription {
-        VertexInputDescription {
-            bindings: vec![vk::VertexInputBindingDescription {
-                binding: 0,
-                stride: std::mem::size_of::<Vertex>() as _,
-                input_rate: vk::VertexInputRate::VERTEX,
-            }],
-            attributes: vec![
-                vk::VertexInputAttributeDescription {
-                    location: 0,
-                    binding: 0,
-                    format: vk::Format::R32G32B32_SFLOAT,
-                    offset: 0,
-                },
-                vk::VertexInputAttributeDescription {
-                    binding: 0,
-                    location: 1,
-                    format: vk::Format::R32G32B32_SFLOAT,
-                    offset: (std::mem::size_of::<f32>() * 3) as u32,
-                },
-                vk::VertexInputAttributeDescription {
-                    binding: 0,
-                    location: 2,
-                    format: vk::Format::R32G32_SFLOAT,
-                    offset: (std::mem::size_of::<f32>() * 6) as u32,
-                },
-            ],
-        }
-    }
 }
