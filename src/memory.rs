@@ -34,7 +34,6 @@ pub fn find_memory_type_index(
         let properties = memory_properties.memory_types[i].property_flags;
         if properties.contains(memory_property_flags) {
             memory_type_index = i;
-            println!("Using {} which has flags {:?}", i, properties);
             break;
         }
     }

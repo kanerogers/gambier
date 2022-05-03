@@ -1,5 +1,4 @@
 use core::ptr::copy_nonoverlapping;
-use std::{ffi::c_void, marker::PhantomData};
 
 use ash::{vk, Device, Instance};
 
@@ -8,12 +7,13 @@ use crate::memory::allocate_memory;
 pub struct Buffer<T: Sized> {
     pub buffer: vk::Buffer,
     pub device_memory: vk::DeviceMemory,
-    pub memory_address: std::ptr::NonNull<c_void>,
+    pub memory_address: std::ptr::NonNull<T>,
     pub descriptor_set: vk::DescriptorSet,
     pub len: usize,
-    _phantom: PhantomData<T>,
     _usage: vk::BufferUsageFlags,
 }
+
+static MAX_LEN: usize = 1024 * 1024;
 
 impl<T: Sized> Buffer<T> {
     pub unsafe fn new(
@@ -25,7 +25,8 @@ impl<T: Sized> Buffer<T> {
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
     ) -> Buffer<T> {
-        let size = (std::mem::size_of::<T>() * 1024 * 1024) as vk::DeviceSize;
+        let size = std::mem::size_of::<T>() * MAX_LEN;
+        let size = size.max(std::mem::size_of::<T>() * initial_data.len()) as vk::DeviceSize;
         println!("Attempting to create buffer of {:?} bytes..", size);
         let buffer = device
             .create_buffer(
@@ -57,7 +58,7 @@ impl<T: Sized> Buffer<T> {
             .map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty())
             .unwrap();
 
-        println!("Copying vertices..");
+        println!("Copying data..");
         copy_nonoverlapping(
             initial_data.as_ptr(),
             std::mem::transmute(memory_address),
@@ -87,6 +88,9 @@ impl<T: Sized> Buffer<T> {
             device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
         }
 
+        // Transmute the pointer into GPU memory so that we can easily access it again.
+        let memory_address = std::mem::transmute(memory_address);
+
         Buffer {
             buffer,
             device_memory,
@@ -94,7 +98,11 @@ impl<T: Sized> Buffer<T> {
             descriptor_set: vk::DescriptorSet::null(),
             len: initial_data.len(),
             _usage: usage,
-            _phantom: PhantomData,
         }
+    }
+
+    /// Dumb update - overrides the content of the GPU buffer with `data`.
+    pub unsafe fn overwrite(&self, data: &[T]) {
+        copy_nonoverlapping(data.as_ptr(), self.memory_address.as_ptr(), data.len());
     }
 }

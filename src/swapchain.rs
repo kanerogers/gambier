@@ -1,3 +1,4 @@
+use crate::vulkan_context::SWAPCHAIN_LENGTH;
 use ash::{
     extensions::khr::{Surface as SurfaceLoader, Swapchain as SwapchainLoader},
     vk,
@@ -40,7 +41,8 @@ impl Swapchain {
                     .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
                     .image_format(format)
                     .surface(surface)
-                    .min_image_count(3)
+                    .min_image_count(SWAPCHAIN_LENGTH)
+                    .present_mode(vk::PresentModeKHR::FIFO)
                     .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT),
                 None,
             )
