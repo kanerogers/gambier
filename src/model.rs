@@ -3,7 +3,12 @@ use std::{collections::HashMap, io::Cursor};
 use id_arena::{Arena, Id};
 use nalgebra_glm::TMat4;
 
-use crate::{texture::Texture, vertex::Vertex, vulkan_context::VulkanContext};
+use crate::{
+    buffer::Buffer,
+    texture::{create_scratch_buffer, Texture},
+    vertex::Vertex,
+    vulkan_context::VulkanContext,
+};
 
 #[derive(Debug)]
 pub struct Model {
@@ -52,10 +57,12 @@ pub struct ImportState<'a> {
     mesh_ids: HashMap<usize, Id<Mesh>>,
     materials: Arena<Material>,
     material_ids: HashMap<usize, Id<Material>>,
+    scratch_buffer: Buffer<u8>,
 }
 
 impl<'a> ImportState<'a> {
     pub fn new(buffers: Vec<&'a [u8]>, vulkan_context: &'a VulkanContext) -> Self {
+        let scratch_buffer = unsafe { create_scratch_buffer(vulkan_context, 1024 * 1024 * 100) };
         Self {
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -68,6 +75,7 @@ impl<'a> ImportState<'a> {
             mesh_ids: HashMap::new(),
             materials: Arena::new(),
             material_ids: HashMap::new(),
+            scratch_buffer,
         }
     }
 }
@@ -174,7 +182,13 @@ fn import_material(material: gltf::Material, import_state: &mut ImportState) -> 
                 let mut image = image::io::Reader::new(Cursor::new(data));
                 image.set_format(image::ImageFormat::Png);
                 let image = image.decode().unwrap();
-                let base_colour = unsafe { Texture::new(import_state.vulkan_context, image) };
+                let base_colour = unsafe {
+                    Texture::new(
+                        import_state.vulkan_context,
+                        &import_state.scratch_buffer,
+                        image,
+                    )
+                };
                 Some(Material { base_colour })
             }
             _ => None,

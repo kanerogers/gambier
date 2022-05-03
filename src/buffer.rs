@@ -13,8 +13,6 @@ pub struct Buffer<T: Sized> {
     _usage: vk::BufferUsageFlags,
 }
 
-static MAX_LEN: usize = 1024 * 1024 * 50;
-
 impl<T: Sized> Buffer<T> {
     pub unsafe fn new(
         device: &Device,
@@ -24,9 +22,8 @@ impl<T: Sized> Buffer<T> {
         descriptor_set_layout: vk::DescriptorSetLayout,
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
+        size: vk::DeviceSize,
     ) -> Buffer<T> {
-        let size = std::mem::size_of::<T>() * MAX_LEN;
-        let size = size.max(std::mem::size_of::<T>() * initial_data.len()) as vk::DeviceSize;
         println!("Attempting to create buffer of {:?} bytes..", size);
         let buffer = device
             .create_buffer(
@@ -58,13 +55,7 @@ impl<T: Sized> Buffer<T> {
             .map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty())
             .unwrap();
 
-        println!("Copying data..");
-        copy_nonoverlapping(
-            initial_data.as_ptr(),
-            std::mem::transmute(memory_address),
-            initial_data.len(),
-        );
-        println!("..done!");
+        if initial_data.len() > 0 {}
 
         if usage == vk::BufferUsageFlags::STORAGE_BUFFER {
             let descriptor_set = device

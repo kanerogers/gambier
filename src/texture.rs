@@ -9,7 +9,11 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub unsafe fn new(vulkan_context: &VulkanContext, image: image::DynamicImage) -> Self {
+    pub unsafe fn new(
+        vulkan_context: &VulkanContext,
+        scratch_buffer: &Buffer<u8>,
+        image: image::DynamicImage,
+    ) -> Self {
         let device = &vulkan_context.device;
         let instance = &vulkan_context.instance;
         let physical_device = vulkan_context.physical_device;
@@ -21,17 +25,9 @@ impl Texture {
             depth: 1,
         };
 
-        println!("Creating scratch buffer..");
         let image_data = image.into_rgba8();
         let image_data = image_data.as_bytes();
-        let scratch_buffer = create_scratch_buffer(
-            device,
-            instance,
-            physical_device,
-            descriptor_pool,
-            descriptor_set_layout,
-            image_data,
-        );
+        scratch_buffer.overwrite(image_data);
 
         let image = Image::new(
             device,
@@ -49,7 +45,12 @@ impl Texture {
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         );
 
-        transfer_image(vulkan_context, scratch_buffer, &image);
+        transfer_image(
+            vulkan_context,
+            scratch_buffer,
+            &image,
+            image_data.len() as _,
+        );
 
         transition_image(
             vulkan_context,
@@ -98,29 +99,27 @@ impl Texture {
     }
 }
 
-unsafe fn create_scratch_buffer(
-    device: &ash::Device,
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    descriptor_pool: vk::DescriptorPool,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-    data: &[u8],
+pub unsafe fn create_scratch_buffer(
+    vulkan_context: &VulkanContext,
+    size: vk::DeviceSize,
 ) -> Buffer<u8> {
     return Buffer::new(
-        device,
-        instance,
-        physical_device,
-        descriptor_pool,
-        descriptor_set_layout,
-        &data,
+        &vulkan_context.device,
+        &vulkan_context.instance,
+        vulkan_context.physical_device,
+        vulkan_context.descriptor_pool,
+        vulkan_context.descriptor_set_layout,
+        &[],
         vk::BufferUsageFlags::TRANSFER_SRC,
+        size,
     );
 }
 
 unsafe fn transfer_image(
     vulkan_context: &VulkanContext,
-    scratch_buffer: Buffer<u8>,
+    scratch_buffer: &Buffer<u8>,
     image: &Image,
+    image_size: vk::DeviceSize,
 ) {
     vulkan_context.one_time_work(|device, command_buffer| {
         device.cmd_copy_buffer_to_image(
