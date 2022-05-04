@@ -2,7 +2,7 @@ use core::ptr::copy_nonoverlapping;
 
 use ash::{vk, Device, Instance};
 
-use crate::memory::allocate_memory;
+use crate::{memory::allocate_memory, vulkan_context::VulkanContext};
 
 pub struct Buffer<T: Sized> {
     pub buffer: vk::Buffer,
@@ -10,7 +10,7 @@ pub struct Buffer<T: Sized> {
     pub memory_address: std::ptr::NonNull<T>,
     pub descriptor_set: vk::DescriptorSet,
     pub len: usize,
-    _usage: vk::BufferUsageFlags,
+    pub usage: vk::BufferUsageFlags,
 }
 
 impl<T: Sized> Buffer<T> {
@@ -18,8 +18,6 @@ impl<T: Sized> Buffer<T> {
         device: &Device,
         instance: &Instance,
         physical_device: vk::PhysicalDevice,
-        descriptor_pool: vk::DescriptorPool,
-        descriptor_set_layout: vk::DescriptorSetLayout,
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
         size: vk::DeviceSize,
@@ -57,28 +55,6 @@ impl<T: Sized> Buffer<T> {
 
         if initial_data.len() > 0 {}
 
-        if usage == vk::BufferUsageFlags::STORAGE_BUFFER {
-            let descriptor_set = device
-                .allocate_descriptor_sets(
-                    &vk::DescriptorSetAllocateInfo::builder()
-                        .descriptor_pool(descriptor_pool)
-                        .set_layouts(&[descriptor_set_layout]),
-                )
-                .unwrap()[0];
-
-            let buffer_info = vk::DescriptorBufferInfo::builder()
-                .buffer(buffer)
-                .offset(0)
-                .range(std::mem::size_of::<T>() as _);
-            let write = vk::WriteDescriptorSet::builder()
-                .buffer_info(std::slice::from_ref(&buffer_info))
-                .dst_set(descriptor_set)
-                .dst_binding(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
-
-            device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
-        }
-
         // Transmute the pointer into GPU memory so that we can easily access it again.
         let memory_address = std::mem::transmute(memory_address);
 
@@ -88,7 +64,7 @@ impl<T: Sized> Buffer<T> {
             memory_address: std::ptr::NonNull::new_unchecked(memory_address),
             descriptor_set: vk::DescriptorSet::null(),
             len: initial_data.len(),
-            _usage: usage,
+            usage: usage,
         }
     }
 
@@ -102,5 +78,33 @@ impl<T: Sized> Buffer<T> {
         device.unmap_memory(self.device_memory);
         device.free_memory(self.device_memory, None);
         device.destroy_buffer(self.buffer, None);
+    }
+
+    pub unsafe fn update_descriptor_set(
+        &self,
+        vulkan_context: &VulkanContext,
+        descriptor_set_layout: vk::DescriptorSetLayout,
+    ) {
+        let device = &vulkan_context.device;
+        let descriptor_pool = vulkan_context.descriptor_pool;
+        let descriptor_set = device
+            .allocate_descriptor_sets(
+                &vk::DescriptorSetAllocateInfo::builder()
+                    .descriptor_pool(descriptor_pool)
+                    .set_layouts(&[descriptor_set_layout]),
+            )
+            .unwrap()[0];
+
+        let buffer_info = vk::DescriptorBufferInfo::builder()
+            .buffer(self.buffer)
+            .offset(0)
+            .range(std::mem::size_of::<T>() as _);
+        let write = vk::WriteDescriptorSet::builder()
+            .buffer_info(std::slice::from_ref(&buffer_info))
+            .dst_set(descriptor_set)
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
+
+        device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
     }
 }

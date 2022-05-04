@@ -102,8 +102,6 @@ pub unsafe fn create_scratch_buffer(
         &vulkan_context.device,
         &vulkan_context.instance,
         vulkan_context.physical_device,
-        vulkan_context.descriptor_pool,
-        vulkan_context.descriptor_set_layout,
         &[],
         vk::BufferUsageFlags::TRANSFER_SRC,
         size,
