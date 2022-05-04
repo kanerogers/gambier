@@ -96,4 +96,11 @@ impl<T: Sized> Buffer<T> {
     pub unsafe fn overwrite(&self, data: &[T]) {
         copy_nonoverlapping(data.as_ptr(), self.memory_address.as_ptr(), data.len());
     }
+
+    /// safety: After calling this function the buffer will be in an UNUSABLE state
+    pub unsafe fn destroy(&self, device: &ash::Device) {
+        device.unmap_memory(self.device_memory);
+        device.free_memory(self.device_memory, None);
+        device.destroy_buffer(self.buffer, None);
+    }
 }

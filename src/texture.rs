@@ -45,12 +45,7 @@ impl Texture {
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         );
 
-        transfer_image(
-            vulkan_context,
-            scratch_buffer,
-            &image,
-            image_data.len() as _,
-        );
+        transfer_image(vulkan_context, scratch_buffer, &image);
 
         transition_image(
             vulkan_context,
@@ -119,7 +114,6 @@ unsafe fn transfer_image(
     vulkan_context: &VulkanContext,
     scratch_buffer: &Buffer<u8>,
     image: &Image,
-    image_size: vk::DeviceSize,
 ) {
     vulkan_context.one_time_work(|device, command_buffer| {
         device.cmd_copy_buffer_to_image(

@@ -111,12 +111,17 @@ pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>
         }
     }
 
-    // Copy indices and vertices into buffers.
     unsafe {
+        // Copy indices and vertices into buffers.
         vulkan_context.index_buffer.overwrite(&import_state.indices);
         vulkan_context
             .vertex_buffer
             .overwrite(&import_state.vertices);
+
+        // Clean up the scratch buffer
+        let device = &vulkan_context.device;
+        let scratch_buffer = &import_state.scratch_buffer;
+        scratch_buffer.destroy(device);
     };
 
     (
