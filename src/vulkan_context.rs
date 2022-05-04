@@ -17,6 +17,7 @@ use crate::buffer::Buffer;
 static COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
 static COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
 pub static SWAPCHAIN_LENGTH: u32 = 3;
+static GPU_TYPE: vk::PhysicalDeviceType = vk::PhysicalDeviceType::INTEGRATED_GPU;
 
 #[derive(Clone)]
 pub enum SelectedPipeline {
@@ -362,16 +363,10 @@ pub unsafe fn create_command_buffer(
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
-    let pool_sizes = [
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::STORAGE_BUFFER,
-            descriptor_count: 1,
-        },
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 1000,
-        },
-    ];
+    let pool_sizes = [vk::DescriptorPoolSize {
+        ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        descriptor_count: 1000,
+    }];
     device
         .create_descriptor_pool(
             &vk::DescriptorPoolCreateInfo::builder()
@@ -385,22 +380,13 @@ unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
 unsafe fn create_descriptor_layouts(
     device: &ash::Device,
 ) -> (vk::DescriptorSetLayout, vk::PipelineLayout) {
-    let bindings = [
-        vk::DescriptorSetLayoutBinding {
-            binding: 0,
-            descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
-            stage_flags: vk::ShaderStageFlags::VERTEX,
-            descriptor_count: 1,
-            ..Default::default()
-        },
-        vk::DescriptorSetLayoutBinding {
-            binding: 1,
-            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            descriptor_count: 1,
-            ..Default::default()
-        },
-    ];
+    let bindings = [vk::DescriptorSetLayoutBinding {
+        binding: 0,
+        descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        stage_flags: vk::ShaderStageFlags::FRAGMENT,
+        descriptor_count: 1,
+        ..Default::default()
+    }];
 
     let descriptor_set_layout = device
         .create_descriptor_set_layout(
@@ -684,7 +670,7 @@ unsafe fn get_device(instance: &ash::Instance) -> (vk::PhysicalDevice, ash::Devi
         .drain(..)
         .find_map(|physical_device| {
             let physical_properties = instance.get_physical_device_properties(physical_device);
-            if physical_properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+            if physical_properties.device_type != GPU_TYPE {
                 return None;
             }
             instance
@@ -693,6 +679,10 @@ unsafe fn get_device(instance: &ash::Instance) -> (vk::PhysicalDevice, ash::Devi
                 .enumerate()
                 .find_map(|(index, info)| {
                     if info.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                        println!(
+                            "Using device {:?}",
+                            ::std::ffi::CStr::from_ptr(physical_properties.device_name.as_ptr())
+                        );
                         Some((physical_device, index as _))
                     } else {
                         None

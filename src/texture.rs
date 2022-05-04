@@ -85,7 +85,7 @@ impl Texture {
         let write = vk::WriteDescriptorSet::builder()
             .image_info(std::slice::from_ref(&image_info))
             .dst_set(descriptor_set)
-            .dst_binding(1)
+            .dst_binding(0)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER);
 
         device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
