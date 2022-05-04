@@ -13,8 +13,6 @@ pub struct Buffer<T: Sized> {
     _usage: vk::BufferUsageFlags,
 }
 
-static MAX_LEN: usize = 1024 * 1024;
-
 impl<T: Sized> Buffer<T> {
     pub unsafe fn new(
         device: &Device,
@@ -24,9 +22,8 @@ impl<T: Sized> Buffer<T> {
         descriptor_set_layout: vk::DescriptorSetLayout,
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
+        size: vk::DeviceSize,
     ) -> Buffer<T> {
-        let size = std::mem::size_of::<T>() * MAX_LEN;
-        let size = size.max(std::mem::size_of::<T>() * initial_data.len()) as vk::DeviceSize;
         println!("Attempting to create buffer of {:?} bytes..", size);
         let buffer = device
             .create_buffer(
@@ -58,13 +55,7 @@ impl<T: Sized> Buffer<T> {
             .map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty())
             .unwrap();
 
-        println!("Copying data..");
-        copy_nonoverlapping(
-            initial_data.as_ptr(),
-            std::mem::transmute(memory_address),
-            initial_data.len(),
-        );
-        println!("..done!");
+        if initial_data.len() > 0 {}
 
         if usage == vk::BufferUsageFlags::STORAGE_BUFFER {
             let descriptor_set = device
@@ -104,5 +95,12 @@ impl<T: Sized> Buffer<T> {
     /// Dumb update - overrides the content of the GPU buffer with `data`.
     pub unsafe fn overwrite(&self, data: &[T]) {
         copy_nonoverlapping(data.as_ptr(), self.memory_address.as_ptr(), data.len());
+    }
+
+    /// safety: After calling this function the buffer will be in an UNUSABLE state
+    pub unsafe fn destroy(&self, device: &ash::Device) {
+        device.unmap_memory(self.device_memory);
+        device.free_memory(self.device_memory, None);
+        device.destroy_buffer(self.buffer, None);
     }
 }

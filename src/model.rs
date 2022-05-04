@@ -1,9 +1,14 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Cursor};
 
 use id_arena::{Arena, Id};
 use nalgebra_glm::TMat4;
 
-use crate::{texture::Texture, vertex::Vertex, vulkan_context::VulkanContext};
+use crate::{
+    buffer::Buffer,
+    texture::{create_scratch_buffer, Texture},
+    vertex::Vertex,
+    vulkan_context::VulkanContext,
+};
 
 #[derive(Debug)]
 pub struct Model {
@@ -45,22 +50,19 @@ pub struct ImportState<'a> {
     indices: Vec<u32>,
     index_offset: u32,
     vertex_offset: u32,
-    buffers: Vec<gltf::buffer::Data>,
-    images: Vec<gltf::image::Data>,
+    buffers: Vec<&'a [u8]>,
     models: Vec<Model>,
     vulkan_context: &'a VulkanContext,
     meshes: Arena<Mesh>,
     mesh_ids: HashMap<usize, Id<Mesh>>,
     materials: Arena<Material>,
     material_ids: HashMap<usize, Id<Material>>,
+    scratch_buffer: Buffer<u8>,
 }
 
 impl<'a> ImportState<'a> {
-    pub fn new(
-        buffers: Vec<gltf::buffer::Data>,
-        images: Vec<gltf::image::Data>,
-        vulkan_context: &'a VulkanContext,
-    ) -> Self {
+    pub fn new(buffers: Vec<&'a [u8]>, vulkan_context: &'a VulkanContext) -> Self {
+        let scratch_buffer = unsafe { create_scratch_buffer(vulkan_context, 1024 * 1024 * 100) };
         Self {
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -68,25 +70,28 @@ impl<'a> ImportState<'a> {
             index_offset: 0,
             vertex_offset: 0,
             buffers,
-            images,
             vulkan_context,
             meshes: Arena::new(),
             mesh_ids: HashMap::new(),
             materials: Arena::new(),
             material_ids: HashMap::new(),
+            scratch_buffer,
         }
     }
 }
 
 pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>, Arena<Material>) {
-    let (gltf, buffers, images) = gltf::import("assets/BoomBoxWithAxes.gltf").unwrap();
-    let mut import_state = ImportState::new(buffers, images, vulkan_context);
+    let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
+    let buffer = gltf.blob.as_ref().unwrap().as_slice();
+    let buffers = vec![buffer];
+    let mut import_state = ImportState::new(buffers, vulkan_context);
 
     for material in gltf.materials() {
         if let Some(index) = material.index() {
-            let material = import_material(material, &mut import_state);
-            let id = import_state.materials.alloc(material);
-            import_state.material_ids.insert(index, id);
+            if let Some(material) = import_material(material, &mut import_state) {
+                let id = import_state.materials.alloc(material);
+                import_state.material_ids.insert(index, id);
+            }
         }
     }
 
@@ -106,12 +111,17 @@ pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>
         }
     }
 
-    // Copy indices and vertices into buffers.
     unsafe {
+        // Copy indices and vertices into buffers.
         vulkan_context.index_buffer.overwrite(&import_state.indices);
         vulkan_context
             .vertex_buffer
             .overwrite(&import_state.vertices);
+
+        // Clean up the scratch buffer
+        let device = &vulkan_context.device;
+        let scratch_buffer = &import_state.scratch_buffer;
+        scratch_buffer.destroy(device);
     };
 
     (
@@ -151,33 +161,46 @@ fn import_primitive(
 ) {
     if let Some(material_index) = primitive.material().index() {
         let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
-        let material = import_state
-            .material_ids
-            .get(&material_index)
-            .unwrap()
-            .clone();
-
-        primitives.push(Primitive {
-            index_offset: import_state.index_offset,
-            vertex_offset: import_state.vertex_offset,
-            num_indices,
-            material,
-        });
+        if let Some(material) = import_state.material_ids.get(&material_index).cloned() {
+            primitives.push(Primitive {
+                index_offset: import_state.index_offset,
+                vertex_offset: import_state.vertex_offset,
+                num_indices,
+                material,
+            });
+        }
 
         import_state.index_offset += num_indices;
         import_state.vertex_offset += num_vertices;
     }
 }
 
-fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Material {
-    let texture = material
-        .pbr_metallic_roughness()
-        .base_color_texture()
-        .unwrap();
-    let image = &import_state.images[texture.texture().source().index()];
-    let base_colour = unsafe { Texture::new(import_state.vulkan_context, image) };
+fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Option<Material> {
+    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
+        match texture.texture().source().source() {
+            gltf::image::Source::View { view, .. } => {
+                let buffer = import_state.buffers[0];
+                let offset = view.offset();
+                let length = view.length();
+                let data = &buffer[offset..offset + length];
 
-    Material { base_colour }
+                let mut image = image::io::Reader::new(Cursor::new(data));
+                image.set_format(image::ImageFormat::Png);
+                let image = image.decode().unwrap();
+                let base_colour = unsafe {
+                    Texture::new(
+                        import_state.vulkan_context,
+                        &import_state.scratch_buffer,
+                        image,
+                    )
+                };
+                Some(Material { base_colour })
+            }
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
 
 fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) -> (u32, u32) {
@@ -218,22 +241,9 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
         }
     }
 
-    let mut colours = Vec::new();
-    if let Some(colour_reader) = reader.read_colors(0) {
-        for colour in colour_reader.into_rgb_f32() {
-            colours.push(colour);
-        }
-    } else {
-        for _ in 0..num_vertices {
-            colours.push([0., 0., 0.]);
-        }
-    }
-
-    for (((position, uv), colour), normal) in positions.drain(..).zip(uvs).zip(colours).zip(normals)
-    {
+    for ((position, uv), normal) in positions.drain(..).zip(uvs).zip(normals) {
         import_state.vertices.push(Vertex {
             position,
-            colour,
             normal,
             uv,
         })

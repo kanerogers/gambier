@@ -9,7 +9,6 @@ pub struct VertexInputDescription {
 #[derive(Debug, Clone)]
 pub struct Vertex {
     pub position: [f32; 3],
-    pub colour: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
 }
@@ -38,14 +37,8 @@ impl Vertex {
                 vk::VertexInputAttributeDescription {
                     binding: 0,
                     location: 2,
-                    format: vk::Format::R32G32B32_SFLOAT,
-                    offset: (std::mem::size_of::<f32>() * 6) as u32,
-                },
-                vk::VertexInputAttributeDescription {
-                    binding: 0,
-                    location: 3,
                     format: vk::Format::R32G32_SFLOAT,
-                    offset: (std::mem::size_of::<f32>() * 9) as u32,
+                    offset: (std::mem::size_of::<f32>() * 6) as u32,
                 },
             ],
         }

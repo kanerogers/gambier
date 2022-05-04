@@ -1,5 +1,5 @@
 use ash::vk;
-use image::{DynamicImage, ImageBuffer};
+use image::EncodableLayout;
 
 use crate::{buffer::Buffer, image::Image, vulkan_context::VulkanContext};
 
@@ -9,29 +9,25 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub unsafe fn new(vulkan_context: &VulkanContext, image: &gltf::image::Data) -> Self {
+    pub unsafe fn new(
+        vulkan_context: &VulkanContext,
+        scratch_buffer: &Buffer<u8>,
+        image: image::DynamicImage,
+    ) -> Self {
         let device = &vulkan_context.device;
         let instance = &vulkan_context.instance;
         let physical_device = vulkan_context.physical_device;
         let descriptor_pool = vulkan_context.descriptor_pool;
         let descriptor_set_layout = vulkan_context.descriptor_set_layout;
         let extent = vk::Extent3D {
-            width: image.width,
-            height: image.height,
+            width: image.width(),
+            height: image.height(),
             depth: 1,
         };
 
-        if image.format == gltf::image::Format::R8G8B8 {}
-
-        println!("Creating scratch buffer..");
-        let scratch_buffer = create_scratch_buffer(
-            device,
-            instance,
-            physical_device,
-            descriptor_pool,
-            descriptor_set_layout,
-            image,
-        );
+        let image_data = image.into_rgba8();
+        let image_data = image_data.as_bytes();
+        scratch_buffer.overwrite(image_data);
 
         let image = Image::new(
             device,
@@ -89,7 +85,7 @@ impl Texture {
         let write = vk::WriteDescriptorSet::builder()
             .image_info(std::slice::from_ref(&image_info))
             .dst_set(descriptor_set)
-            .dst_binding(1)
+            .dst_binding(0)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER);
 
         device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
@@ -98,50 +94,25 @@ impl Texture {
     }
 }
 
-unsafe fn create_scratch_buffer(
-    device: &ash::Device,
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    descriptor_pool: vk::DescriptorPool,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-    image: &gltf::image::Data,
+pub unsafe fn create_scratch_buffer(
+    vulkan_context: &VulkanContext,
+    size: vk::DeviceSize,
 ) -> Buffer<u8> {
-    if image.format == gltf::image::Format::R8G8B8A8 {
-        return Buffer::new(
-            device,
-            instance,
-            physical_device,
-            descriptor_pool,
-            descriptor_set_layout,
-            &image.pixels,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-        );
-    }
-
-    let mut data = image.pixels.iter();
-    let image_buffer = ImageBuffer::from_fn(image.width, image.height, |_, _| {
-        let r = data.next().unwrap();
-        let g = data.next().unwrap();
-        let b = data.next().unwrap();
-        image::Rgb([*r, *g, *b])
-    });
-
-    let converted_image = DynamicImage::ImageRgb8(image_buffer).into_rgba8();
-    let data = converted_image.as_raw();
     return Buffer::new(
-        device,
-        instance,
-        physical_device,
-        descriptor_pool,
-        descriptor_set_layout,
-        &data,
+        &vulkan_context.device,
+        &vulkan_context.instance,
+        vulkan_context.physical_device,
+        vulkan_context.descriptor_pool,
+        vulkan_context.descriptor_set_layout,
+        &[],
         vk::BufferUsageFlags::TRANSFER_SRC,
+        size,
     );
 }
 
 unsafe fn transfer_image(
     vulkan_context: &VulkanContext,
-    scratch_buffer: Buffer<u8>,
+    scratch_buffer: &Buffer<u8>,
     image: &Image,
 ) {
     vulkan_context.one_time_work(|device, command_buffer| {

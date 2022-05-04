@@ -87,6 +87,22 @@ fn main() {
                             camera_pos += delta;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
                         }
+                        Some(VirtualKeyCode::Space) => {
+                            let delta = nalgebra_glm::rotate_y_vec3(
+                                &nalgebra_glm::vec3(0., displacement, 0.),
+                                camera_y_rot,
+                            );
+                            camera_pos += delta;
+                            globals.view = update_camera(camera_y_rot, &camera_pos);
+                        }
+                        Some(VirtualKeyCode::LControl) => {
+                            let delta = nalgebra_glm::rotate_y_vec3(
+                                &nalgebra_glm::vec3(0., -displacement, 0.),
+                                camera_y_rot,
+                            );
+                            camera_pos += delta;
+                            globals.view = update_camera(camera_y_rot, &camera_pos);
+                        }
                         Some(VirtualKeyCode::Q) => {
                             camera_y_rot += displacement;
                             globals.view = update_camera(camera_y_rot, &camera_pos);
