@@ -7,7 +7,7 @@ use crate::{
     buffer::Buffer,
     texture::{create_scratch_buffer, Texture},
     vertex::Vertex,
-    vulkan_context::VulkanContext,
+    vulkan_context::{ModelData, VulkanContext},
 };
 
 #[derive(Debug)]
@@ -117,6 +117,16 @@ pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>
         vulkan_context
             .vertex_buffer
             .overwrite(&import_state.vertices);
+
+        // Copy model data into shared buffer.
+        let model_data = import_state
+            .models
+            .iter()
+            .map(|m| ModelData {
+                transform: m.transform,
+            })
+            .collect::<Vec<_>>();
+        vulkan_context.model_buffer.overwrite(&model_data);
 
         // Clean up the scratch buffer
         let device = &vulkan_context.device;

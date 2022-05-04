@@ -11,6 +11,7 @@ pub mod vulkan_context;
 
 use std::time::Instant;
 
+use ash::vk;
 use model::import_models;
 use nalgebra_glm as glm;
 use vulkan_context::{Globals, VulkanContext};
@@ -23,7 +24,8 @@ use winit::{
 fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut vulkan_context = VulkanContext::new(&window);
+    let gpu_type = get_gpu_type();
+    let mut vulkan_context = VulkanContext::new(&window, gpu_type);
     let mut camera_pos = nalgebra_glm::vec3(0., 0.2, 2.);
     let mut camera_y_rot = 0.;
 
@@ -118,6 +120,16 @@ fn main() {
             _ => {}
         }
     });
+}
+
+fn get_gpu_type() -> vk::PhysicalDeviceType {
+    let mut args = std::env::args();
+    println!("ARGS: {:?}", args);
+    if args.nth(1) == Some("integrated".to_string()) {
+        return vk::PhysicalDeviceType::INTEGRATED_GPU;
+    }
+
+    return vk::PhysicalDeviceType::DISCRETE_GPU;
 }
 
 #[allow(unused)]

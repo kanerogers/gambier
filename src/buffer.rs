@@ -2,7 +2,7 @@ use core::ptr::copy_nonoverlapping;
 
 use ash::{vk, Device, Instance};
 
-use crate::{memory::allocate_memory, vulkan_context::VulkanContext};
+use crate::memory::allocate_memory;
 
 pub struct Buffer<T: Sized> {
     pub buffer: vk::Buffer,
@@ -20,8 +20,9 @@ impl<T: Sized> Buffer<T> {
         physical_device: vk::PhysicalDevice,
         initial_data: &[T],
         usage: vk::BufferUsageFlags,
-        size: vk::DeviceSize,
+        len: usize,
     ) -> Buffer<T> {
+        let size = (std::mem::size_of::<T>() * len) as _;
         println!("Attempting to create buffer of {:?} bytes..", size);
         let buffer = device
             .create_buffer(
@@ -53,10 +54,10 @@ impl<T: Sized> Buffer<T> {
             .map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty())
             .unwrap();
 
-        if initial_data.len() > 0 {}
-
         // Transmute the pointer into GPU memory so that we can easily access it again.
         let memory_address = std::mem::transmute(memory_address);
+
+        // Get the
 
         Buffer {
             buffer,
@@ -64,7 +65,7 @@ impl<T: Sized> Buffer<T> {
             memory_address: std::ptr::NonNull::new_unchecked(memory_address),
             descriptor_set: vk::DescriptorSet::null(),
             len: initial_data.len(),
-            usage: usage,
+            usage,
         }
     }
 
@@ -83,11 +84,10 @@ impl<T: Sized> Buffer<T> {
     /// TODO: Only writes to the first binding
     pub unsafe fn update_descriptor_set(
         &mut self,
-        vulkan_context: &VulkanContext,
+        device: &ash::Device,
+        descriptor_pool: vk::DescriptorPool,
         descriptor_set_layout: vk::DescriptorSetLayout,
     ) {
-        let device = &vulkan_context.device;
-        let descriptor_pool = vulkan_context.descriptor_pool;
         let descriptor_set = device
             .allocate_descriptor_sets(
                 &vk::DescriptorSetAllocateInfo::builder()
@@ -99,7 +99,8 @@ impl<T: Sized> Buffer<T> {
         let buffer_info = vk::DescriptorBufferInfo::builder()
             .buffer(self.buffer)
             .offset(0)
-            .range(std::mem::size_of::<T>() as _);
+            .range(vk::WHOLE_SIZE);
+            
         let write = vk::WriteDescriptorSet::builder()
             .buffer_info(std::slice::from_ref(&buffer_info))
             .dst_set(descriptor_set)

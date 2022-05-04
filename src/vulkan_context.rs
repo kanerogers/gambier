@@ -17,7 +17,6 @@ use crate::buffer::Buffer;
 static COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
 static COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
 pub static SWAPCHAIN_LENGTH: u32 = 3;
-static GPU_TYPE: vk::PhysicalDeviceType = vk::PhysicalDeviceType::INTEGRATED_GPU;
 
 #[derive(Clone)]
 pub enum SelectedPipeline {
@@ -71,10 +70,10 @@ pub struct VulkanContext {
 }
 
 impl VulkanContext {
-    pub fn new(window: &Window) -> Self {
+    pub fn new(window: &Window, gpu_type: vk::PhysicalDeviceType) -> Self {
         unsafe {
             let (entry, instance) = init(window);
-            let (physical_device, device, queue_family_index) = get_device(&instance);
+            let (physical_device, device, queue_family_index) = get_device(&instance, gpu_type);
             let present_queue = device.get_device_queue(queue_family_index, 0);
             let swapchain = Swapchain::new(&entry, &instance, window, physical_device, &device);
             let (swapchain_images, swapchain_image_views) = swapchain.create_image_views(&device);
@@ -126,7 +125,7 @@ impl VulkanContext {
                 physical_device,
                 &[],
                 vk::BufferUsageFlags::VERTEX_BUFFER,
-                (std::mem::size_of::<Vertex>() * 2097246) as _,
+                2097246,
             );
 
             let index_buffer = Buffer::new(
@@ -135,7 +134,7 @@ impl VulkanContext {
                 physical_device,
                 &[],
                 vk::BufferUsageFlags::INDEX_BUFFER,
-                (std::mem::size_of::<u32>() * 11240796) as _,
+                11240796,
             );
 
             let mut model_buffer = Buffer::new(
@@ -144,8 +143,9 @@ impl VulkanContext {
                 physical_device,
                 &[],
                 vk::BufferUsageFlags::STORAGE_BUFFER,
-                (std::mem::size_of::<ModelData>() * 10000) as _,
+                10000,
             );
+            model_buffer.update_descriptor_set(&device, descriptor_pool, shared_layout);
 
             Self {
                 entry,
@@ -265,6 +265,14 @@ impl VulkanContext {
             std::slice::from_ref(&vertex_buffer),
             &[0],
         );
+        device.cmd_bind_descriptor_sets(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            pipeline_layout,
+            1,
+            &[self.model_buffer.descriptor_set],
+            &[],
+        );
 
         device.cmd_push_constants(
             command_buffer,
@@ -274,7 +282,7 @@ impl VulkanContext {
             global_push_constant,
         );
 
-        for model in models {
+        for (index, model) in models.iter().enumerate() {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
                 let material = materials.get(primitive.material).unwrap();
@@ -293,7 +301,7 @@ impl VulkanContext {
                     1,
                     primitive.index_offset,
                     primitive.vertex_offset as _,
-                    0,
+                    index as _,
                 );
             }
         }
@@ -378,10 +386,16 @@ pub unsafe fn create_command_buffer(
 }
 
 unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
-    let pool_sizes = [vk::DescriptorPoolSize {
-        ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-        descriptor_count: 1000,
-    }];
+    let pool_sizes = [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1000,
+        },
+    ];
     device
         .create_descriptor_pool(
             &vk::DescriptorPoolCreateInfo::builder()
@@ -697,14 +711,17 @@ unsafe fn create_command_pool(device: &ash::Device, queue_family_index: u32) -> 
         .unwrap()
 }
 
-unsafe fn get_device(instance: &ash::Instance) -> (vk::PhysicalDevice, ash::Device, u32) {
+unsafe fn get_device(
+    instance: &ash::Instance,
+    gpu_type: vk::PhysicalDeviceType,
+) -> (vk::PhysicalDevice, ash::Device, u32) {
     let (physical_device, queue_index) = instance
         .enumerate_physical_devices()
         .unwrap()
         .drain(..)
         .find_map(|physical_device| {
             let physical_properties = instance.get_physical_device_properties(physical_device);
-            if physical_properties.device_type != GPU_TYPE {
+            if physical_properties.device_type != gpu_type {
                 return None;
             }
             instance

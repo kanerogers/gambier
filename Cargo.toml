@@ -17,7 +17,7 @@ vk-shader-macros = "0.2.8"
 winit = "0.26.1"
 
 [profile.dev.package.image]
-opt-level = 3
+opt-level = 1
 
 [profile.dev.package.gltf]
-opt-level = 3
+opt-level = 1

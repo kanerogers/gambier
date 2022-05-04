@@ -94,10 +94,7 @@ impl Texture {
     }
 }
 
-pub unsafe fn create_scratch_buffer(
-    vulkan_context: &VulkanContext,
-    size: vk::DeviceSize,
-) -> Buffer<u8> {
+pub unsafe fn create_scratch_buffer(vulkan_context: &VulkanContext, size: usize) -> Buffer<u8> {
     return Buffer::new(
         &vulkan_context.device,
         &vulkan_context.instance,
