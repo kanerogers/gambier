@@ -29,12 +29,7 @@ fn main() {
 
     let projection = create_projection_matrix();
     let view = update_camera(camera_y_rot, &camera_pos);
-    let model = glm::identity();
-    let mut globals = Globals {
-        projection,
-        view,
-        model,
-    };
+    let mut globals = Globals { projection, view };
     let mut last_frame_time = Instant::now();
     let (models, meshes, materials) = import_models(&vulkan_context);
 

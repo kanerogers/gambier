@@ -18,7 +18,7 @@ impl Texture {
         let instance = &vulkan_context.instance;
         let physical_device = vulkan_context.physical_device;
         let descriptor_pool = vulkan_context.descriptor_pool;
-        let descriptor_set_layout = vulkan_context.descriptor_set_layout;
+        let descriptor_set_layout = vulkan_context.texture_layout;
         let extent = vk::Extent3D {
             width: image.width(),
             height: image.height(),

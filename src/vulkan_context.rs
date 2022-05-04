@@ -35,7 +35,12 @@ impl Default for SelectedPipeline {
 pub struct Globals {
     pub projection: TMat4x4<f32>,
     pub view: TMat4x4<f32>,
-    pub model: TMat4x4<f32>,
+}
+
+#[repr(C, align(16))]
+#[derive(Debug, Clone)]
+pub struct ModelData {
+    pub transform: TMat4x4<f32>,
 }
 
 pub struct VulkanContext {
@@ -55,7 +60,9 @@ pub struct VulkanContext {
     pub colored_pipeline: vk::Pipeline,
     pub vertex_buffer: Buffer<Vertex>,
     pub index_buffer: Buffer<u32>,
-    pub descriptor_set_layout: vk::DescriptorSetLayout,
+    pub model_buffer: Buffer<ModelData>,
+    pub texture_layout: vk::DescriptorSetLayout,
+    pub shared_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
     pub depth_image: Image,
@@ -92,7 +99,8 @@ impl VulkanContext {
                 .unwrap();
             let frames = (0..3).map(|_| Frame::new(&device, command_pool)).collect();
             let render_pass = create_render_pass(&device, &swapchain);
-            let (descriptor_set_layout, pipeline_layout) = create_descriptor_layouts(&device);
+            let (texture_layout, shared_layout, pipeline_layout) =
+                create_descriptor_layouts(&device);
 
             let shader_stages = create_shader_stages(&device, COLORED_VERT, COLORED_FRAG);
             let colored_pipeline = create_pipeline(
@@ -130,6 +138,15 @@ impl VulkanContext {
                 (std::mem::size_of::<u32>() * 11240796) as _,
             );
 
+            let mut model_buffer = Buffer::new(
+                &device,
+                &instance,
+                physical_device,
+                &[],
+                vk::BufferUsageFlags::STORAGE_BUFFER,
+                (std::mem::size_of::<ModelData>() * 10000) as _,
+            );
+
             Self {
                 entry,
                 instance,
@@ -147,7 +164,9 @@ impl VulkanContext {
                 present_queue,
                 vertex_buffer,
                 index_buffer,
-                descriptor_set_layout,
+                model_buffer,
+                texture_layout,
+                shared_layout,
                 descriptor_pool,
                 pipeline_layout,
                 depth_image,
@@ -247,6 +266,14 @@ impl VulkanContext {
             &[0],
         );
 
+        device.cmd_push_constants(
+            command_buffer,
+            pipeline_layout,
+            vk::ShaderStageFlags::VERTEX,
+            0,
+            global_push_constant,
+        );
+
         for model in models {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
@@ -260,14 +287,6 @@ impl VulkanContext {
                     &[],
                 );
 
-                globals.model = model.transform;
-                device.cmd_push_constants(
-                    command_buffer,
-                    pipeline_layout,
-                    vk::ShaderStageFlags::VERTEX,
-                    0,
-                    global_push_constant,
-                );
                 device.cmd_draw_indexed(
                     command_buffer,
                     primitive.num_indices,
@@ -375,7 +394,11 @@ unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
 
 unsafe fn create_descriptor_layouts(
     device: &ash::Device,
-) -> (vk::DescriptorSetLayout, vk::PipelineLayout) {
+) -> (
+    vk::DescriptorSetLayout,
+    vk::DescriptorSetLayout,
+    vk::PipelineLayout,
+) {
     let bindings = [vk::DescriptorSetLayoutBinding {
         binding: 0,
         descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -384,7 +407,22 @@ unsafe fn create_descriptor_layouts(
         ..Default::default()
     }];
 
-    let descriptor_set_layout = device
+    let texture_set_layout = device
+        .create_descriptor_set_layout(
+            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
+            None,
+        )
+        .unwrap();
+
+    let bindings = [vk::DescriptorSetLayoutBinding {
+        binding: 0,
+        descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+        stage_flags: vk::ShaderStageFlags::VERTEX,
+        descriptor_count: 1,
+        ..Default::default()
+    }];
+
+    let shared_layout = device
         .create_descriptor_set_layout(
             &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
             None,
@@ -394,7 +432,7 @@ unsafe fn create_descriptor_layouts(
     let pipeline_layout = device
         .create_pipeline_layout(
             &vk::PipelineLayoutCreateInfo::builder()
-                .set_layouts(&[descriptor_set_layout])
+                .set_layouts(&[texture_set_layout, shared_layout])
                 .push_constant_ranges(&[vk::PushConstantRange {
                     stage_flags: vk::ShaderStageFlags::VERTEX,
                     offset: 0,
@@ -405,7 +443,7 @@ unsafe fn create_descriptor_layouts(
         )
         .unwrap();
 
-    (descriptor_set_layout, pipeline_layout)
+    (texture_set_layout, shared_layout, pipeline_layout)
 }
 
 unsafe fn create_shader_stages(

@@ -80,8 +80,9 @@ impl<T: Sized> Buffer<T> {
         device.destroy_buffer(self.buffer, None);
     }
 
+    /// TODO: Only writes to the first binding
     pub unsafe fn update_descriptor_set(
-        &self,
+        &mut self,
         vulkan_context: &VulkanContext,
         descriptor_set_layout: vk::DescriptorSetLayout,
     ) {
@@ -106,5 +107,6 @@ impl<T: Sized> Buffer<T> {
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
 
         device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
+        self.descriptor_set = descriptor_set;
     }
 }
