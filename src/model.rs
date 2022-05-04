@@ -241,22 +241,9 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
         }
     }
 
-    let mut colours = Vec::new();
-    if let Some(colour_reader) = reader.read_colors(0) {
-        for colour in colour_reader.into_rgb_f32() {
-            colours.push(colour);
-        }
-    } else {
-        for _ in 0..num_vertices {
-            colours.push([0., 0., 0.]);
-        }
-    }
-
-    for (((position, uv), colour), normal) in positions.drain(..).zip(uvs).zip(colours).zip(normals)
-    {
+    for ((position, uv), normal) in positions.drain(..).zip(uvs).zip(normals) {
         import_state.vertices.push(Vertex {
             position,
-            colour,
             normal,
             uv,
         })

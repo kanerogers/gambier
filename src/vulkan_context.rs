@@ -119,7 +119,7 @@ impl VulkanContext {
                 descriptor_set_layout,
                 &[],
                 vk::BufferUsageFlags::VERTEX_BUFFER,
-                (std::mem::size_of::<Vertex>() * 1024 * 1024 * 50) as _,
+                (std::mem::size_of::<Vertex>() * 2097246) as _,
             );
 
             let index_buffer = Buffer::new(
@@ -130,7 +130,7 @@ impl VulkanContext {
                 descriptor_set_layout,
                 &[],
                 vk::BufferUsageFlags::INDEX_BUFFER,
-                (std::mem::size_of::<u32>() * 1024 * 1024 * 50) as _,
+                (std::mem::size_of::<u32>() * 11240796) as _,
             );
 
             Self {
