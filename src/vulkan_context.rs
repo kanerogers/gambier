@@ -8,7 +8,10 @@ use crate::{
 use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
 use id_arena::Arena;
 use nalgebra_glm::TMat4x4;
-use std::ffi::{CStr, CString};
+use std::{
+    ffi::{CStr, CString},
+    mem::size_of,
+};
 use vk_shader_macros::include_glsl;
 use winit::window::Window;
 
@@ -60,6 +63,7 @@ pub struct VulkanContext {
     pub vertex_buffer: Buffer<Vertex>,
     pub index_buffer: Buffer<u32>,
     pub model_buffer: Buffer<ModelData>,
+    pub indirect_buffer: Buffer<vk::DrawIndexedIndirectCommand>,
     pub texture_layout: vk::DescriptorSetLayout,
     pub shared_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
@@ -145,7 +149,19 @@ impl VulkanContext {
                 vk::BufferUsageFlags::STORAGE_BUFFER,
                 10000,
             );
+
             model_buffer.update_descriptor_set(&device, descriptor_pool, shared_layout);
+
+            let indirect_buffer = Buffer::new(
+                &device,
+                &instance,
+                physical_device,
+                &[],
+                vk::BufferUsageFlags::TRANSFER_DST
+                    | vk::BufferUsageFlags::STORAGE_BUFFER
+                    | vk::BufferUsageFlags::INDIRECT_BUFFER,
+                1000,
+            );
 
             Self {
                 entry,
@@ -165,6 +181,7 @@ impl VulkanContext {
                 vertex_buffer,
                 index_buffer,
                 model_buffer,
+                indirect_buffer,
                 texture_layout,
                 shared_layout,
                 descriptor_pool,
@@ -198,13 +215,14 @@ impl VulkanContext {
 
         let index_buffer = self.index_buffer.buffer;
         let vertex_buffer = self.vertex_buffer.buffer;
+        let indirect_buffer = &self.indirect_buffer;
 
         let pipeline_layout = self.pipeline_layout;
         let _descriptor_sets = [self.vertex_buffer.descriptor_set];
 
         let global_push_constant = std::slice::from_raw_parts(
             (globals as *const Globals) as *const u8,
-            std::mem::size_of::<Globals>(),
+            size_of::<Globals>(),
         );
 
         device
@@ -282,6 +300,24 @@ impl VulkanContext {
             global_push_constant,
         );
 
+        let mut draw_commands = Vec::new();
+        for (index, model) in models.iter().enumerate() {
+            let mesh = meshes.get(model.mesh).unwrap();
+            for primitive in &mesh.primitives {
+                let command = vk::DrawIndexedIndirectCommand {
+                    index_count: primitive.num_indices,
+                    instance_count: 1,
+                    first_index: primitive.index_offset,
+                    vertex_offset: primitive.vertex_offset as _,
+                    first_instance: index as _,
+                };
+                draw_commands.push(command);
+            }
+        }
+
+        // Upload draw commands to the GPU.
+        indirect_buffer.overwrite(&draw_commands);
+
         for (index, model) in models.iter().enumerate() {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
@@ -294,14 +330,13 @@ impl VulkanContext {
                     &[material.base_colour.descriptor_set],
                     &[],
                 );
-
-                device.cmd_draw_indexed(
+                let stride = size_of::<vk::DrawIndexedIndirectCommand>() as _;
+                device.cmd_draw_indexed_indirect(
                     command_buffer,
-                    primitive.num_indices,
+                    indirect_buffer.buffer,
+                    (stride * index as u32) as vk::DeviceSize,
                     1,
-                    primitive.index_offset,
-                    primitive.vertex_offset as _,
-                    index as _,
+                    stride,
                 );
             }
         }
@@ -450,7 +485,7 @@ unsafe fn create_descriptor_layouts(
                 .push_constant_ranges(&[vk::PushConstantRange {
                     stage_flags: vk::ShaderStageFlags::VERTEX,
                     offset: 0,
-                    size: std::mem::size_of::<Globals>() as _,
+                    size: size_of::<Globals>() as _,
                     ..Default::default()
                 }]),
             None,
