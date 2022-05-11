@@ -1,12 +1,11 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::{Material, Mesh, Model, ModelContext},
+    model::ModelContext,
     swapchain::Swapchain,
     vertex::Vertex,
 };
 use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
-use id_arena::Arena;
 use nalgebra_glm::TMat4x4;
 use std::{
     ffi::{CStr, CString},
