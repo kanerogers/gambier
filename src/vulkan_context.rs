@@ -72,6 +72,7 @@ pub struct VulkanContext {
     pub depth_image: Image,
     pub frames: Vec<Frame>,
     pub frame_index: usize,
+    pub sampler: vk::Sampler,
 }
 
 impl VulkanContext {
@@ -165,6 +166,20 @@ impl VulkanContext {
                 1000,
             );
 
+            let filter = vk::Filter::LINEAR;
+            let address_mode = vk::SamplerAddressMode::REPEAT;
+            let sampler = device
+                .create_sampler(
+                    &vk::SamplerCreateInfo::builder()
+                        .mag_filter(filter)
+                        .min_filter(filter)
+                        .address_mode_u(address_mode)
+                        .address_mode_v(address_mode)
+                        .address_mode_w(address_mode),
+                    None,
+                )
+                .unwrap();
+
             Self {
                 entry,
                 instance,
@@ -192,6 +207,7 @@ impl VulkanContext {
                 depth_image,
                 frames,
                 frame_index: 0,
+                sampler,
             }
         }
     }
@@ -260,6 +276,7 @@ impl VulkanContext {
         device.end_command_buffer(compute_command_buffer).unwrap();
         let submit_info = vk::SubmitInfo::builder()
             .command_buffers(std::slice::from_ref(&compute_command_buffer));
+
         device
             .queue_submit(
                 self.present_queue,
@@ -268,7 +285,7 @@ impl VulkanContext {
             )
             .unwrap();
         device
-            .wait_for_fences(&[sync_structures.compute_fence], true, 100000)
+            .wait_for_fences(&[sync_structures.compute_fence], true, 1000000000)
             .unwrap();
         device
             .reset_fences(&[sync_structures.compute_fence])

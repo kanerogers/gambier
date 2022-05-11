@@ -14,6 +14,7 @@ impl Texture {
         scratch_buffer: &Buffer<u8>,
         image: image::DynamicImage,
     ) -> Self {
+        println!("Creating texture..");
         let device = &vulkan_context.device;
         let instance = &vulkan_context.instance;
         let physical_device = vulkan_context.physical_device;
@@ -54,21 +55,6 @@ impl Texture {
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         );
 
-        let filter = vk::Filter::LINEAR;
-        let address_mode = vk::SamplerAddressMode::REPEAT;
-
-        let sampler = device
-            .create_sampler(
-                &vk::SamplerCreateInfo::builder()
-                    .mag_filter(filter)
-                    .min_filter(filter)
-                    .address_mode_u(address_mode)
-                    .address_mode_v(address_mode)
-                    .address_mode_w(address_mode),
-                None,
-            )
-            .unwrap();
-
         let descriptor_set = device
             .allocate_descriptor_sets(
                 &vk::DescriptorSetAllocateInfo::builder()
@@ -78,7 +64,7 @@ impl Texture {
             .unwrap()[0];
 
         let image_info = vk::DescriptorImageInfo::builder()
-            .sampler(sampler)
+            .sampler(vulkan_context.sampler)
             .image_view(image.view)
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
 

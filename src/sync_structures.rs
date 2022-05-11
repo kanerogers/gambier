@@ -17,10 +17,7 @@ impl SyncStructures {
                 )
                 .unwrap();
             let compute_fence = device
-                .create_fence(
-                    &vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED),
-                    None,
-                )
+                .create_fence(&vk::FenceCreateInfo::builder(), None)
                 .unwrap();
             let present_semaphore = device
                 .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
