@@ -80,7 +80,13 @@ impl<'a> ImportState<'a> {
     }
 }
 
-pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>, Arena<Material>) {
+pub struct ModelContext {
+    pub models: Vec<Model>,
+    pub meshes: Arena<Mesh>,
+    pub materials: Arena<Material>,
+}
+
+pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
     let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
     let buffer = gltf.blob.as_ref().unwrap().as_slice();
     let buffers = vec![buffer];
@@ -134,11 +140,11 @@ pub fn import_models(vulkan_context: &VulkanContext) -> (Vec<Model>, Arena<Mesh>
         scratch_buffer.destroy(device);
     };
 
-    (
-        import_state.models,
-        import_state.meshes,
-        import_state.materials,
-    )
+    ModelContext {
+        models: import_state.models,
+        meshes: import_state.meshes,
+        materials: import_state.materials,
+    }
 }
 
 fn import_node(

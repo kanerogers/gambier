@@ -1,7 +1,7 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::{Material, Mesh, Model},
+    model::{Material, Mesh, Model, ModelContext},
     swapchain::Swapchain,
     vertex::Vertex,
 };
@@ -197,13 +197,7 @@ impl VulkanContext {
         }
     }
 
-    pub unsafe fn render(
-        &mut self,
-        models: &[Model],
-        meshes: &Arena<Mesh>,
-        materials: &Arena<Material>,
-        globals: &mut Globals,
-    ) {
+    pub unsafe fn render(&mut self, model_context: &ModelContext, globals: &mut Globals) {
         let frame = &self.frames[self.frame_index];
         let sync_structures = &frame.sync_structures;
         let render_fence = &sync_structures.render_fence;
@@ -223,6 +217,10 @@ impl VulkanContext {
 
         let pipeline_layout = self.pipeline_layout;
         let _descriptor_sets = [self.vertex_buffer.descriptor_set];
+
+        let models = &model_context.models;
+        let meshes = &model_context.meshes;
+        let materials = &model_context.materials;
 
         let global_push_constant = std::slice::from_raw_parts(
             (globals as *const Globals) as *const u8,
