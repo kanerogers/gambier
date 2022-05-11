@@ -124,7 +124,6 @@ fn main() {
 
 fn get_gpu_type() -> vk::PhysicalDeviceType {
     let mut args = std::env::args();
-    println!("ARGS: {:?}", args);
     if args.nth(1) == Some("integrated".to_string()) {
         return vk::PhysicalDeviceType::INTEGRATED_GPU;
     }

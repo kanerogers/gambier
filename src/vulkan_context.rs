@@ -19,6 +19,7 @@ use crate::buffer::Buffer;
 
 static COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
 static COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
+static COMPUTE: &[u32] = include_glsl!("src/shaders/hello.comp");
 pub static SWAPCHAIN_LENGTH: u32 = 3;
 
 #[derive(Clone)]
@@ -60,6 +61,7 @@ pub struct VulkanContext {
     pub framebuffers: Vec<vk::Framebuffer>,
     pub present_queue: vk::Queue,
     pub colored_pipeline: vk::Pipeline,
+    pub compute_pipeline: vk::Pipeline,
     pub vertex_buffer: Buffer<Vertex>,
     pub index_buffer: Buffer<u32>,
     pub model_buffer: Buffer<ModelData>,
@@ -113,6 +115,7 @@ impl VulkanContext {
                 &shader_stages,
                 pipeline_layout,
             );
+            let compute_pipeline = create_compute_pipeline(&device, pipeline_layout);
 
             // Resources
             let framebuffers = create_framebuffers(
@@ -177,6 +180,7 @@ impl VulkanContext {
                 swapchain_image_views,
                 framebuffers,
                 colored_pipeline,
+                compute_pipeline,
                 present_queue,
                 vertex_buffer,
                 index_buffer,
@@ -240,6 +244,40 @@ impl VulkanContext {
                 vk::Fence::null(),
             )
             .unwrap();
+
+        // Compute
+        let compute_command_buffer = create_command_buffer(device, self.command_pool);
+        device
+            .begin_command_buffer(
+                compute_command_buffer,
+                &vk::CommandBufferBeginInfo::builder()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )
+            .unwrap();
+        device.cmd_bind_pipeline(
+            compute_command_buffer,
+            vk::PipelineBindPoint::COMPUTE,
+            self.compute_pipeline,
+        );
+        device.cmd_dispatch(compute_command_buffer, 1, 1, 1);
+        device.end_command_buffer(compute_command_buffer).unwrap();
+        let submit_info = vk::SubmitInfo::builder()
+            .command_buffers(std::slice::from_ref(&compute_command_buffer));
+        device
+            .queue_submit(
+                self.present_queue,
+                std::slice::from_ref(&submit_info),
+                sync_structures.compute_fence,
+            )
+            .unwrap();
+        device
+            .wait_for_fences(&[sync_structures.compute_fence], true, 100000)
+            .unwrap();
+        device
+            .reset_fences(&[sync_structures.compute_fence])
+            .unwrap();
+        device.free_command_buffers(self.command_pool, &[compute_command_buffer]);
+
         device
             .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
             .unwrap();
@@ -404,6 +442,32 @@ impl VulkanContext {
             .unwrap();
         device.reset_fences(std::slice::from_ref(&fence)).unwrap();
     }
+}
+
+unsafe fn create_compute_pipeline(
+    device: &ash::Device,
+    layout: vk::PipelineLayout,
+) -> vk::Pipeline {
+    let shader_entry_name = CStr::from_bytes_with_nul_unchecked(b"main\0");
+    let compute_module = device
+        .create_shader_module(&vk::ShaderModuleCreateInfo::builder().code(&COMPUTE), None)
+        .unwrap();
+    let create_info = vk::ComputePipelineCreateInfo::builder()
+        .stage(vk::PipelineShaderStageCreateInfo {
+            stage: vk::ShaderStageFlags::COMPUTE,
+            module: compute_module,
+            p_name: shader_entry_name.as_ptr(),
+            ..Default::default()
+        })
+        .layout(layout);
+
+    device
+        .create_compute_pipelines(
+            vk::PipelineCache::null(),
+            std::slice::from_ref(&create_info),
+            None,
+        )
+        .unwrap()[0]
 }
 
 pub unsafe fn create_command_buffer(
