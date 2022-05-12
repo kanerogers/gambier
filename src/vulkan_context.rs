@@ -370,7 +370,8 @@ impl VulkanContext {
         // Upload draw commands to the GPU.
         indirect_buffer.overwrite(&draw_commands);
 
-        for (index, model) in models.iter().enumerate() {
+        let mut offset = 0;
+        for model in models {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
                 let material = materials.get(primitive.material).unwrap();
@@ -386,10 +387,11 @@ impl VulkanContext {
                 device.cmd_draw_indexed_indirect(
                     command_buffer,
                     indirect_buffer.buffer,
-                    (stride * index as u32) as vk::DeviceSize,
+                    (stride * offset as u32) as vk::DeviceSize,
                     1,
                     stride,
                 );
+                offset += 1;
             }
         }
 

@@ -190,15 +190,20 @@ fn import_primitive(
     primitives: &mut Vec<Primitive>,
     import_state: &mut ImportState,
 ) {
+    println!("Importing primitive {}", primitive.index());
     if let Some(material_index) = primitive.material().index() {
-        let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
         if let Some(material) = import_state.material_ids.get(&material_index).cloned() {
+            println!("Primitive has material importing geometry..");
+            let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
             primitives.push(Primitive {
                 index_offset: import_state.index_offset,
                 vertex_offset: import_state.vertex_offset,
                 num_indices,
                 material,
             });
+            import_state.index_offset += num_indices;
+            import_state.vertex_offset += num_vertices;
+            println!("Done - imported {} indices", num_indices);
         } else {
             eprintln!(
                 "Not importing primitive {} - material {} does not exist",
@@ -206,8 +211,6 @@ fn import_primitive(
                 material_index
             )
         }
-        import_state.index_offset += num_indices;
-        import_state.vertex_offset += num_vertices;
     }
 }
 
