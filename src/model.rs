@@ -30,6 +30,7 @@ impl Model {
 #[derive(Debug)]
 pub struct Mesh {
     pub primitives: Vec<Primitive>,
+    pub name: String,
 }
 
 #[derive(Debug)]
@@ -43,6 +44,7 @@ pub struct Primitive {
 #[derive(Debug)]
 pub struct Material {
     pub base_colour: Texture,
+    pub name: String,
 }
 
 pub struct ImportState<'a> {
@@ -95,20 +97,32 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
 
     for material in gltf.materials() {
         if let Some(index) = material.index() {
+            println!("Importing material {}..", index);
             if let Some(material) = import_material(material, &mut import_state) {
                 let id = import_state.materials.alloc(material);
                 import_state.material_ids.insert(index, id);
+                println!("..done!");
+            } else {
+                eprintln!(
+                    "WARNING: Material {} not imported (probably does not have a PBR texture)",
+                    index
+                );
             }
         }
     }
 
     for mesh in gltf.meshes() {
         let mut primitives = Vec::new();
+        println!("Importing mesh {}", mesh.index());
         for primitive in mesh.primitives() {
             import_primitive(primitive, &mut primitives, &mut import_state);
         }
 
-        let id = import_state.meshes.alloc(Mesh { primitives });
+        let name = mesh
+            .name()
+            .unwrap_or(&format!("Mesh {}", mesh.index()))
+            .to_string();
+        let id = import_state.meshes.alloc(Mesh { primitives, name });
         import_state.mesh_ids.insert(mesh.index(), id);
     }
 
@@ -185,8 +199,13 @@ fn import_primitive(
                 num_indices,
                 material,
             });
+        } else {
+            eprintln!(
+                "Not importing primitive {} - material {} does not exist",
+                primitive.index(),
+                material_index
+            )
         }
-
         import_state.index_offset += num_indices;
         import_state.vertex_offset += num_vertices;
     }
@@ -211,7 +230,11 @@ fn import_material(material: gltf::Material, import_state: &mut ImportState) -> 
                         image,
                     )
                 };
-                Some(Material { base_colour })
+                let name = material
+                    .name()
+                    .unwrap_or(&format!("Material {}", material.index().unwrap()))
+                    .to_string();
+                Some(Material { base_colour, name })
             }
             _ => None,
         }
