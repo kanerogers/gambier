@@ -1,7 +1,7 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::ModelContext,
+    model::{Material, ModelContext},
     swapchain::Swapchain,
     vertex::Vertex,
 };
@@ -16,9 +16,9 @@ use winit::window::Window;
 
 use crate::buffer::Buffer;
 
-static COLORED_VERT: &[u32] = include_glsl!("src/shaders/colored_triangle.vert");
-static COLORED_FRAG: &[u32] = include_glsl!("src/shaders/colored_triangle.frag");
-static COMPUTE: &[u32] = include_glsl!("src/shaders/hello.comp");
+static VERT: &[u32] = include_glsl!("src/shaders/render.vert");
+static FRAG: &[u32] = include_glsl!("src/shaders/render.frag");
+static COMPUTE: &[u32] = include_glsl!("src/shaders/render.comp");
 pub static SWAPCHAIN_LENGTH: u32 = 3;
 
 #[derive(Clone)]
@@ -45,6 +45,13 @@ pub struct ModelData {
     pub transform: TMat4x4<f32>,
 }
 
+#[repr(C, align(16))]
+#[derive(Debug, Clone)]
+pub struct DrawData {
+    pub material_id: u16,
+    pub model_id: u16,
+}
+
 pub struct VulkanContext {
     pub entry: ash::Entry,
     pub instance: ash::Instance,
@@ -64,8 +71,8 @@ pub struct VulkanContext {
     pub vertex_buffer: Buffer<Vertex>,
     pub index_buffer: Buffer<u32>,
     pub model_buffer: Buffer<ModelData>,
+    pub material_buffer: Buffer<Material>,
     pub indirect_buffer: Buffer<vk::DrawIndexedIndirectCommand>,
-    pub texture_layout: vk::DescriptorSetLayout,
     pub shared_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub pipeline_layout: vk::PipelineLayout,
@@ -104,10 +111,9 @@ impl VulkanContext {
                 .unwrap();
             let frames = (0..3).map(|_| Frame::new(&device, command_pool)).collect();
             let render_pass = create_render_pass(&device, &swapchain);
-            let (texture_layout, shared_layout, pipeline_layout) =
-                create_descriptor_layouts(&device);
+            let (shared_layout, pipeline_layout) = create_descriptor_layouts(&device);
 
-            let shader_stages = create_shader_stages(&device, COLORED_VERT, COLORED_FRAG);
+            let shader_stages = create_shader_stages(&device, VERT, FRAG);
             let colored_pipeline = create_pipeline(
                 &device,
                 &render_pass,
@@ -152,8 +158,17 @@ impl VulkanContext {
                 vk::BufferUsageFlags::STORAGE_BUFFER,
                 10000,
             );
+            model_buffer.update_descriptor_set(&device, descriptor_pool, shared_layout, 0);
 
-            model_buffer.update_descriptor_set(&device, descriptor_pool, shared_layout);
+            let mut material_buffer = Buffer::new(
+                &device,
+                &instance,
+                physical_device,
+                &[],
+                vk::BufferUsageFlags::STORAGE_BUFFER,
+                10000,
+            );
+            material_buffer.update_descriptor_set(&device, descriptor_pool, shared_layout, 1);
 
             let indirect_buffer = Buffer::new(
                 &device,
@@ -199,8 +214,8 @@ impl VulkanContext {
                 vertex_buffer,
                 index_buffer,
                 model_buffer,
+                material_buffer,
                 indirect_buffer,
-                texture_layout,
                 shared_layout,
                 descriptor_pool,
                 pipeline_layout,
@@ -235,7 +250,6 @@ impl VulkanContext {
 
         let models = &model_context.models;
         let meshes = &model_context.meshes;
-        let materials = &model_context.materials;
 
         let global_push_constant = std::slice::from_raw_parts(
             (globals as *const Globals) as *const u8,
@@ -353,47 +367,36 @@ impl VulkanContext {
         );
 
         let mut draw_commands = Vec::new();
+        let mut draw_data = Vec::new();
         for (index, model) in models.iter().enumerate() {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
-                let command = vk::DrawIndexedIndirectCommand {
+                draw_commands.push(vk::DrawIndexedIndirectCommand {
                     index_count: primitive.num_indices,
                     instance_count: 1,
                     first_index: primitive.index_offset,
                     vertex_offset: primitive.vertex_offset as _,
-                    first_instance: index as _,
-                };
-                draw_commands.push(command);
+                    first_instance: 0,
+                });
+
+                draw_data.push(DrawData {
+                    material_id: primitive.material_id,
+                    model_id: index as _,
+                })
             }
         }
 
         // Upload draw commands to the GPU.
         indirect_buffer.overwrite(&draw_commands);
 
-        let mut offset = 0;
-        for model in models {
-            let mesh = meshes.get(model.mesh).unwrap();
-            for primitive in &mesh.primitives {
-                let material = materials.get(primitive.material).unwrap();
-                device.cmd_bind_descriptor_sets(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    pipeline_layout,
-                    0,
-                    &[material.base_colour.descriptor_set],
-                    &[],
-                );
-                let stride = size_of::<vk::DrawIndexedIndirectCommand>() as _;
-                device.cmd_draw_indexed_indirect(
-                    command_buffer,
-                    indirect_buffer.buffer,
-                    (stride * offset as u32) as vk::DeviceSize,
-                    1,
-                    stride,
-                );
-                offset += 1;
-            }
-        }
+        let stride = size_of::<vk::DrawIndexedIndirectCommand>() as _;
+        device.cmd_draw_indexed_indirect(
+            command_buffer,
+            indirect_buffer.buffer,
+            (stride) as vk::DeviceSize,
+            draw_commands.len() as _,
+            stride,
+        );
 
         device.cmd_end_render_pass(command_buffer);
         device.end_command_buffer(command_buffer).unwrap();
@@ -523,33 +526,33 @@ unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
 
 unsafe fn create_descriptor_layouts(
     device: &ash::Device,
-) -> (
-    vk::DescriptorSetLayout,
-    vk::DescriptorSetLayout,
-    vk::PipelineLayout,
-) {
-    let bindings = [vk::DescriptorSetLayoutBinding {
-        binding: 0,
-        descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-        stage_flags: vk::ShaderStageFlags::FRAGMENT,
-        descriptor_count: 1,
-        ..Default::default()
-    }];
-
-    let texture_set_layout = device
-        .create_descriptor_set_layout(
-            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
-            None,
-        )
-        .unwrap();
-
-    let bindings = [vk::DescriptorSetLayoutBinding {
-        binding: 0,
-        descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
-        stage_flags: vk::ShaderStageFlags::VERTEX,
-        descriptor_count: 1,
-        ..Default::default()
-    }];
+) -> (vk::DescriptorSetLayout, vk::PipelineLayout) {
+    let bindings = [
+        // Models
+        vk::DescriptorSetLayoutBinding {
+            binding: 0,
+            descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            descriptor_count: 1,
+            ..Default::default()
+        },
+        // Materials
+        vk::DescriptorSetLayoutBinding {
+            binding: 1,
+            descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            descriptor_count: 1,
+            ..Default::default()
+        },
+        // Textures
+        vk::DescriptorSetLayoutBinding {
+            binding: 2,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            descriptor_count: 1000,
+            ..Default::default()
+        },
+    ];
 
     let shared_layout = device
         .create_descriptor_set_layout(
@@ -561,7 +564,7 @@ unsafe fn create_descriptor_layouts(
     let pipeline_layout = device
         .create_pipeline_layout(
             &vk::PipelineLayoutCreateInfo::builder()
-                .set_layouts(&[texture_set_layout, shared_layout])
+                .set_layouts(&[shared_layout])
                 .push_constant_ranges(&[vk::PushConstantRange {
                     stage_flags: vk::ShaderStageFlags::VERTEX,
                     offset: 0,
@@ -572,7 +575,7 @@ unsafe fn create_descriptor_layouts(
         )
         .unwrap();
 
-    (texture_set_layout, shared_layout, pipeline_layout)
+    (shared_layout, pipeline_layout)
 }
 
 unsafe fn create_shader_stages(

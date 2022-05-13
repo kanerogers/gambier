@@ -5,7 +5,7 @@ use crate::{buffer::Buffer, image::Image, vulkan_context::VulkanContext};
 
 #[derive(Debug)]
 pub struct Texture {
-    pub descriptor_set: vk::DescriptorSet,
+    pub image: Image,
 }
 
 impl Texture {
@@ -18,8 +18,6 @@ impl Texture {
         let device = &vulkan_context.device;
         let instance = &vulkan_context.instance;
         let physical_device = vulkan_context.physical_device;
-        let descriptor_pool = vulkan_context.descriptor_pool;
-        let descriptor_set_layout = vulkan_context.texture_layout;
         let extent = vk::Extent3D {
             width: image.width(),
             height: image.height(),
@@ -55,28 +53,7 @@ impl Texture {
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         );
 
-        let descriptor_set = device
-            .allocate_descriptor_sets(
-                &vk::DescriptorSetAllocateInfo::builder()
-                    .descriptor_pool(descriptor_pool)
-                    .set_layouts(&[descriptor_set_layout]),
-            )
-            .unwrap()[0];
-
-        let image_info = vk::DescriptorImageInfo::builder()
-            .sampler(vulkan_context.sampler)
-            .image_view(image.view)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-
-        let write = vk::WriteDescriptorSet::builder()
-            .image_info(std::slice::from_ref(&image_info))
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER);
-
-        device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
-
-        Self { descriptor_set }
+        Self { image }
     }
 }
 

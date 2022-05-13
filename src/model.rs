@@ -38,13 +38,12 @@ pub struct Primitive {
     pub index_offset: u32,
     pub vertex_offset: u32,
     pub num_indices: u32,
-    pub material: Id<Material>,
+    pub material_id: u16,
 }
 
 #[derive(Debug)]
 pub struct Material {
-    pub base_colour: Texture,
-    pub name: String,
+    pub base_color_texture_id: u16,
 }
 
 pub struct ImportState<'a> {
@@ -57,9 +56,9 @@ pub struct ImportState<'a> {
     vulkan_context: &'a VulkanContext,
     meshes: Arena<Mesh>,
     mesh_ids: HashMap<usize, Id<Mesh>>,
-    materials: Arena<Material>,
-    material_ids: HashMap<usize, Id<Material>>,
+    materials: Vec<Material>,
     scratch_buffer: Buffer<u8>,
+    textures: Vec<Texture>,
 }
 
 impl<'a> ImportState<'a> {
@@ -75,9 +74,9 @@ impl<'a> ImportState<'a> {
             vulkan_context,
             meshes: Arena::new(),
             mesh_ids: HashMap::new(),
-            materials: Arena::new(),
-            material_ids: HashMap::new(),
+            materials: Vec::new(),
             scratch_buffer,
+            textures: Vec::new(),
         }
     }
 }
@@ -85,7 +84,6 @@ impl<'a> ImportState<'a> {
 pub struct ModelContext {
     pub models: Vec<Model>,
     pub meshes: Arena<Mesh>,
-    pub materials: Arena<Material>,
 }
 
 pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
@@ -99,8 +97,7 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
         if let Some(index) = material.index() {
             println!("Importing material {}..", index);
             if let Some(material) = import_material(material, &mut import_state) {
-                let id = import_state.materials.alloc(material);
-                import_state.material_ids.insert(index, id);
+                import_state.materials.push(material);
                 println!("..done!");
             } else {
                 eprintln!(
@@ -133,33 +130,38 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
     }
 
     unsafe {
-        // Copy indices and vertices into buffers.
-        vulkan_context.index_buffer.overwrite(&import_state.indices);
-        vulkan_context
-            .vertex_buffer
-            .overwrite(&import_state.vertices);
-
-        // Copy model data into shared buffer.
-        let model_data = import_state
-            .models
-            .iter()
-            .map(|m| ModelData {
-                transform: m.transform,
-            })
-            .collect::<Vec<_>>();
-        vulkan_context.model_buffer.overwrite(&model_data);
-
-        // Clean up the scratch buffer
-        let device = &vulkan_context.device;
-        let scratch_buffer = &import_state.scratch_buffer;
-        scratch_buffer.destroy(device);
+        upload_models(&import_state);
     };
 
     ModelContext {
         models: import_state.models,
         meshes: import_state.meshes,
-        materials: import_state.materials,
     }
+}
+
+unsafe fn upload_models(import_state: &ImportState) {
+    let vulkan_context = import_state.vulkan_context;
+
+    // Copy indices and vertices into buffers.
+    vulkan_context.index_buffer.overwrite(&import_state.indices);
+    vulkan_context
+        .vertex_buffer
+        .overwrite(&import_state.vertices);
+
+    // Copy model data into model buffer.
+    let model_data = import_state
+        .models
+        .iter()
+        .map(|m| ModelData {
+            transform: m.transform,
+        })
+        .collect::<Vec<_>>();
+    vulkan_context.model_buffer.overwrite(&model_data);
+
+    // Clean up the scratch buffer
+    let device = &vulkan_context.device;
+    let scratch_buffer = &import_state.scratch_buffer;
+    scratch_buffer.destroy(device);
 }
 
 fn import_node(
@@ -191,27 +193,32 @@ fn import_primitive(
     import_state: &mut ImportState,
 ) {
     println!("Importing primitive {}", primitive.index());
-    if let Some(material_index) = primitive.material().index() {
-        if let Some(material) = import_state.material_ids.get(&material_index).cloned() {
-            println!("Primitive has material importing geometry..");
-            let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
-            primitives.push(Primitive {
-                index_offset: import_state.index_offset,
-                vertex_offset: import_state.vertex_offset,
-                num_indices,
-                material,
-            });
-            import_state.index_offset += num_indices;
-            import_state.vertex_offset += num_vertices;
-            println!("Done - imported {} indices", num_indices);
-        } else {
-            eprintln!(
-                "Not importing primitive {} - material {} does not exist",
-                primitive.index(),
-                material_index
-            )
-        }
+    if has_pbr_material(&primitive) {
+        println!("Primitive has material importing geometry..");
+        let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
+        primitives.push(Primitive {
+            index_offset: import_state.index_offset,
+            vertex_offset: import_state.vertex_offset,
+            num_indices,
+            material_id: primitive.material().index().unwrap() as _,
+        });
+        import_state.index_offset += num_indices;
+        import_state.vertex_offset += num_vertices;
+        println!("Done - imported {} indices", num_indices);
+    } else {
+        eprintln!(
+            "Not importing primitive {} - does not have PBR colour material",
+            primitive.index(),
+        )
     }
+}
+
+fn has_pbr_material(primitive: &gltf::Primitive) -> bool {
+    primitive
+        .material()
+        .pbr_metallic_roughness()
+        .base_color_texture()
+        .is_some()
 }
 
 fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Option<Material> {
@@ -226,18 +233,18 @@ fn import_material(material: gltf::Material, import_state: &mut ImportState) -> 
                 let mut image = image::io::Reader::new(Cursor::new(data));
                 image.set_format(image::ImageFormat::Png);
                 let image = image.decode().unwrap();
-                let base_colour = unsafe {
+                let base_colour_texture = unsafe {
                     Texture::new(
                         import_state.vulkan_context,
                         &import_state.scratch_buffer,
                         image,
                     )
                 };
-                let name = material
-                    .name()
-                    .unwrap_or(&format!("Material {}", material.index().unwrap()))
-                    .to_string();
-                Some(Material { base_colour, name })
+                import_state.textures.push(base_colour_texture);
+
+                Some(Material {
+                    base_color_texture_id: texture.texture().index() as _,
+                })
             }
             _ => None,
         }
