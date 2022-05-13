@@ -1,5 +1,6 @@
 use std::{collections::HashMap, io::Cursor};
 
+use ash::vk;
 use id_arena::{Arena, Id};
 use nalgebra_glm::TMat4;
 
@@ -157,6 +158,28 @@ unsafe fn upload_models(import_state: &ImportState) {
         })
         .collect::<Vec<_>>();
     vulkan_context.model_buffer.overwrite(&model_data);
+
+    // Copy material data into material buffer.
+    vulkan_context
+        .material_buffer
+        .overwrite(&import_state.materials);
+
+    // Write texture descriptor sets
+    let texture_writes = import_state
+        .textures
+        .iter()
+        .map(|t| vk::WriteDescriptorSet {
+            dst_binding: 3,
+            p_image_info: &t.image_descriptor_info,
+            dst_set: vulkan_context.texture_descriptor_set,
+            descriptor_count: 1,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    vulkan_context
+        .device
+        .update_descriptor_sets(&texture_writes, &[]);
 
     // Clean up the scratch buffer
     let device = &vulkan_context.device;

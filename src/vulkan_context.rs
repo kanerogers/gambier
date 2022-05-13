@@ -5,7 +5,10 @@ use crate::{
     swapchain::Swapchain,
     vertex::Vertex,
 };
-use ash::{extensions::khr::Swapchain as SwapchainLoader, vk};
+use ash::{
+    extensions::khr::Swapchain as SwapchainLoader,
+    vk::{self, KhrShaderDrawParametersFn},
+};
 use nalgebra_glm::TMat4x4;
 use std::{
     ffi::{CStr, CString},
@@ -72,6 +75,8 @@ pub struct VulkanContext {
     pub index_buffer: Buffer<u32>,
     pub model_buffer: Buffer<ModelData>,
     pub material_buffer: Buffer<Material>,
+    pub draw_data_buffer: Buffer<DrawData>,
+    pub texture_descriptor_set: vk::DescriptorSet,
     pub indirect_buffer: Buffer<vk::DrawIndexedIndirectCommand>,
     pub shared_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
@@ -150,25 +155,31 @@ impl VulkanContext {
                 11240796,
             );
 
-            let mut model_buffer = Buffer::new(
+            let draw_data_buffer = storage_buffer(
                 &device,
                 &instance,
                 physical_device,
-                &[],
-                vk::BufferUsageFlags::STORAGE_BUFFER,
-                10000,
+                descriptor_pool,
+                shared_layout,
+                0,
             );
-            model_buffer.update_descriptor_set(&device, descriptor_pool, shared_layout, 0);
 
-            let mut material_buffer = Buffer::new(
+            let model_buffer = storage_buffer(
                 &device,
                 &instance,
                 physical_device,
-                &[],
-                vk::BufferUsageFlags::STORAGE_BUFFER,
-                10000,
+                descriptor_pool,
+                shared_layout,
+                1,
             );
-            material_buffer.update_descriptor_set(&device, descriptor_pool, shared_layout, 1);
+            let material_buffer = storage_buffer(
+                &device,
+                &instance,
+                physical_device,
+                descriptor_pool,
+                shared_layout,
+                2,
+            );
 
             let indirect_buffer = Buffer::new(
                 &device,
@@ -178,7 +189,7 @@ impl VulkanContext {
                 vk::BufferUsageFlags::TRANSFER_DST
                     | vk::BufferUsageFlags::STORAGE_BUFFER
                     | vk::BufferUsageFlags::INDIRECT_BUFFER,
-                1000,
+                10_000,
             );
 
             let filter = vk::Filter::LINEAR;
@@ -194,6 +205,14 @@ impl VulkanContext {
                     None,
                 )
                 .unwrap();
+
+            let texture_descriptor_set = device
+                .allocate_descriptor_sets(
+                    &vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(std::slice::from_ref(&shared_layout)),
+                )
+                .unwrap()[0];
 
             Self {
                 entry,
@@ -215,8 +234,10 @@ impl VulkanContext {
                 index_buffer,
                 model_buffer,
                 material_buffer,
+                draw_data_buffer,
                 indirect_buffer,
                 shared_layout,
+                texture_descriptor_set,
                 descriptor_pool,
                 pipeline_layout,
                 depth_image,
@@ -349,12 +370,17 @@ impl VulkanContext {
             std::slice::from_ref(&vertex_buffer),
             &[0],
         );
+
         device.cmd_bind_descriptor_sets(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
             pipeline_layout,
-            1,
-            &[self.model_buffer.descriptor_set],
+            0,
+            &[
+                self.draw_data_buffer.descriptor_set,
+                self.model_buffer.descriptor_set,
+                self.material_buffer.descriptor_set,
+            ],
             &[],
         );
 
@@ -463,6 +489,26 @@ impl VulkanContext {
     }
 }
 
+unsafe fn storage_buffer<T>(
+    device: &ash::Device,
+    instance: &ash::Instance,
+    physical_device: vk::PhysicalDevice,
+    descriptor_pool: vk::DescriptorPool,
+    shared_layout: vk::DescriptorSetLayout,
+    binding: usize,
+) -> Buffer<T> {
+    let mut buffer = Buffer::new(
+        device,
+        instance,
+        physical_device,
+        &[],
+        vk::BufferUsageFlags::STORAGE_BUFFER,
+        10_000,
+    );
+    buffer.update_descriptor_set(device, descriptor_pool, shared_layout, binding);
+    buffer
+}
+
 unsafe fn create_compute_pipeline(
     device: &ash::Device,
     layout: vk::PipelineLayout,
@@ -528,7 +574,7 @@ unsafe fn create_descriptor_layouts(
     device: &ash::Device,
 ) -> (vk::DescriptorSetLayout, vk::PipelineLayout) {
     let bindings = [
-        // Models
+        // Draw Data
         vk::DescriptorSetLayoutBinding {
             binding: 0,
             descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
@@ -536,9 +582,17 @@ unsafe fn create_descriptor_layouts(
             descriptor_count: 1,
             ..Default::default()
         },
-        // Materials
+        // Models
         vk::DescriptorSetLayoutBinding {
             binding: 1,
+            descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            descriptor_count: 1,
+            ..Default::default()
+        },
+        // Materials
+        vk::DescriptorSetLayoutBinding {
+            binding: 2,
             descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             descriptor_count: 1,
@@ -546,7 +600,7 @@ unsafe fn create_descriptor_layouts(
         },
         // Textures
         vk::DescriptorSetLayoutBinding {
-            binding: 2,
+            binding: 3,
             descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             descriptor_count: 1000,
@@ -860,17 +914,27 @@ unsafe fn get_device(
         })
         .unwrap();
 
-    let device_extension_names = [SwapchainLoader::name().as_ptr()];
+    let device_extension_names = [
+        SwapchainLoader::name().as_ptr(),
+        KhrShaderDrawParametersFn::name().as_ptr(),
+    ];
     let queue_create_info = vk::DeviceQueueCreateInfo::builder()
         .queue_priorities(&[1.0])
         .queue_family_index(queue_index);
+
+    let mut vulkan_11_features =
+        vk::PhysicalDeviceVulkan11Features::builder().shader_draw_parameters(true);
+
+    let enabled_features = vk::PhysicalDeviceFeatures::builder().multi_draw_indirect(true);
 
     let device = instance
         .create_device(
             physical_device,
             &vk::DeviceCreateInfo::builder()
                 .enabled_extension_names(&device_extension_names)
-                .queue_create_infos(std::slice::from_ref(&queue_create_info)),
+                .queue_create_infos(std::slice::from_ref(&queue_create_info))
+                .enabled_features(&enabled_features)
+                .push_next(&mut vulkan_11_features),
             None,
         )
         .unwrap();

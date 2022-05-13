@@ -5,7 +5,7 @@ use crate::{buffer::Buffer, image::Image, vulkan_context::VulkanContext};
 
 #[derive(Debug)]
 pub struct Texture {
-    pub image: Image,
+    pub image_descriptor_info: vk::DescriptorImageInfo,
 }
 
 impl Texture {
@@ -53,7 +53,13 @@ impl Texture {
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         );
 
-        Self { image }
+        Self {
+            image_descriptor_info: vk::DescriptorImageInfo {
+                sampler: vulkan_context.sampler,
+                image_view: image.view,
+                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            },
+        }
     }
 }
 
