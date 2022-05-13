@@ -164,22 +164,22 @@ unsafe fn upload_models(import_state: &ImportState) {
         .material_buffer
         .overwrite(&import_state.materials);
 
-    // Write texture descriptor sets
-    let texture_writes = import_state
+    let image_info = import_state
         .textures
         .iter()
-        .map(|t| vk::WriteDescriptorSet {
-            dst_binding: 3,
-            p_image_info: &t.image_descriptor_info,
-            dst_set: vulkan_context.texture_descriptor_set,
-            descriptor_count: 1,
-            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            ..Default::default()
-        })
+        .map(|t| t.image_descriptor_info)
         .collect::<Vec<_>>();
+
+    // Write texture descriptor sets
+    let texture_write = vk::WriteDescriptorSet::builder()
+        .image_info(&image_info)
+        .dst_binding(3)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .dst_set(vulkan_context.shared_descriptor_set);
+
     vulkan_context
         .device
-        .update_descriptor_sets(&texture_writes, &[]);
+        .update_descriptor_sets(std::slice::from_ref(&texture_write), &[]);
 
     // Clean up the scratch buffer
     let device = &vulkan_context.device;
