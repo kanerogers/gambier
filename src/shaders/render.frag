@@ -1,18 +1,6 @@
 #version 460
-
-struct DrawData {
-    uint model_id;
-    uint material_id;
-};
-
-struct Material {
-    uint base_colour_texture_id;
-};
-
-// Input
-layout(std140, set = 0, binding = 0) readonly buffer DrawDataBuffer {
-    DrawData draw_data[];
-} draw_data_buffer;
+#extension GL_EXT_nonuniform_qualifier:enable
+#include "common.glsl"
 
 // Input
 layout(std140, set = 0, binding = 2) readonly buffer MaterialBuffer {
@@ -20,19 +8,17 @@ layout(std140, set = 0, binding = 2) readonly buffer MaterialBuffer {
 } material_buffer;
 
 // Textures
-layout(set = 0, binding = 3) uniform sampler2D textures[255];
+layout(set = 0, binding = 3) uniform sampler2D textures[];
 
-layout (location = 0) in vec2 inUV;
-layout (location = 1) in flat uint in_material_id;
+layout (location = 0) in vec2 in_uv;
+layout (location = 1) flat in uint in_material_id;
 
 // Output
-layout (location = 0) out vec4 outFragColor;
+layout (location = 0) out vec4 out_colour;
 
 
-void main() {
+void main(void) {
     Material material = material_buffer.materials[in_material_id];
-
-    vec4 colour = texture(textures[material.base_colour_texture_id], inUV);
-    colour.w = 1;
-    outFragColor = colour;
+    out_colour = texture(textures[nonuniformEXT(material.base_colour_texture_id)], in_uv);
+    out_colour.w = 1;
 }

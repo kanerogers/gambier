@@ -1,17 +1,9 @@
 #version 460
+#include "common.glsl"
 
 layout (push_constant) uniform globals { 
     mat4 projection;
     mat4 view;
-};
-
-struct ModelData {
-    mat4 transform;
-};
-
-struct DrawData {
-    uint model_id;
-    uint material_id;
 };
 
 layout(std140, set = 0, binding = 0) readonly buffer DrawDataBuffer {
@@ -35,4 +27,5 @@ void main() {
     mat4 model = model_buffer.models[draw_data.model_id].transform;
     gl_Position = projection * view * model * vec4(inPosition, 1.0);
     outUV = inUV;
+    out_material_id = uint(draw_data.material_id);
 }

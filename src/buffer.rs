@@ -8,7 +8,6 @@ pub struct Buffer<T: Sized> {
     pub buffer: vk::Buffer,
     pub device_memory: vk::DeviceMemory,
     pub memory_address: std::ptr::NonNull<T>,
-    pub descriptor_set: vk::DescriptorSet,
     pub len: usize,
     pub usage: vk::BufferUsageFlags,
 }
@@ -63,7 +62,6 @@ impl<T: Sized> Buffer<T> {
             buffer,
             device_memory,
             memory_address: std::ptr::NonNull::new_unchecked(memory_address),
-            descriptor_set: vk::DescriptorSet::null(),
             len: initial_data.len(),
             usage,
         }
@@ -84,18 +82,9 @@ impl<T: Sized> Buffer<T> {
     pub unsafe fn update_descriptor_set(
         &mut self,
         device: &ash::Device,
-        descriptor_pool: vk::DescriptorPool,
-        descriptor_set_layout: vk::DescriptorSetLayout,
+        descriptor_set: vk::DescriptorSet,
         binding: usize,
     ) {
-        let descriptor_set = device
-            .allocate_descriptor_sets(
-                &vk::DescriptorSetAllocateInfo::builder()
-                    .descriptor_pool(descriptor_pool)
-                    .set_layouts(&[descriptor_set_layout]),
-            )
-            .unwrap()[0];
-
         let buffer_info = vk::DescriptorBufferInfo::builder()
             .buffer(self.buffer)
             .offset(0)
@@ -108,6 +97,5 @@ impl<T: Sized> Buffer<T> {
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER);
 
         device.update_descriptor_sets(std::slice::from_ref(&write), &[]);
-        self.descriptor_set = descriptor_set;
     }
 }

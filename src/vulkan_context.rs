@@ -51,8 +51,8 @@ pub struct ModelData {
 #[repr(C, align(16))]
 #[derive(Debug, Clone)]
 pub struct DrawData {
-    pub material_id: u16,
     pub model_id: u16,
+    pub material_id: u16,
 }
 
 pub struct VulkanContext {
@@ -76,7 +76,7 @@ pub struct VulkanContext {
     pub model_buffer: Buffer<ModelData>,
     pub material_buffer: Buffer<Material>,
     pub draw_data_buffer: Buffer<DrawData>,
-    pub texture_descriptor_set: vk::DescriptorSet,
+    pub shared_descriptor_set: vk::DescriptorSet,
     pub indirect_buffer: Buffer<vk::DrawIndexedIndirectCommand>,
     pub shared_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
@@ -155,12 +155,19 @@ impl VulkanContext {
                 11240796,
             );
 
+            let shared_descriptor_set = device
+                .allocate_descriptor_sets(
+                    &vk::DescriptorSetAllocateInfo::builder()
+                        .descriptor_pool(descriptor_pool)
+                        .set_layouts(std::slice::from_ref(&shared_layout)),
+                )
+                .unwrap()[0];
+
             let draw_data_buffer = storage_buffer(
                 &device,
                 &instance,
                 physical_device,
-                descriptor_pool,
-                shared_layout,
+                shared_descriptor_set,
                 0,
             );
 
@@ -168,16 +175,14 @@ impl VulkanContext {
                 &device,
                 &instance,
                 physical_device,
-                descriptor_pool,
-                shared_layout,
+                shared_descriptor_set,
                 1,
             );
             let material_buffer = storage_buffer(
                 &device,
                 &instance,
                 physical_device,
-                descriptor_pool,
-                shared_layout,
+                shared_descriptor_set,
                 2,
             );
 
@@ -206,14 +211,6 @@ impl VulkanContext {
                 )
                 .unwrap();
 
-            let texture_descriptor_set = device
-                .allocate_descriptor_sets(
-                    &vk::DescriptorSetAllocateInfo::builder()
-                        .descriptor_pool(descriptor_pool)
-                        .set_layouts(std::slice::from_ref(&shared_layout)),
-                )
-                .unwrap()[0];
-
             Self {
                 entry,
                 instance,
@@ -237,7 +234,7 @@ impl VulkanContext {
                 draw_data_buffer,
                 indirect_buffer,
                 shared_layout,
-                texture_descriptor_set,
+                shared_descriptor_set,
                 descriptor_pool,
                 pipeline_layout,
                 depth_image,
@@ -267,7 +264,6 @@ impl VulkanContext {
         let indirect_buffer = &self.indirect_buffer;
 
         let pipeline_layout = self.pipeline_layout;
-        let _descriptor_sets = [self.vertex_buffer.descriptor_set];
 
         let models = &model_context.models;
         let meshes = &model_context.meshes;
@@ -376,11 +372,7 @@ impl VulkanContext {
             vk::PipelineBindPoint::GRAPHICS,
             pipeline_layout,
             0,
-            &[
-                self.draw_data_buffer.descriptor_set,
-                self.model_buffer.descriptor_set,
-                self.material_buffer.descriptor_set,
-            ],
+            &[self.shared_descriptor_set],
             &[],
         );
 
@@ -414,12 +406,13 @@ impl VulkanContext {
 
         // Upload draw commands to the GPU.
         indirect_buffer.overwrite(&draw_commands);
+        self.draw_data_buffer.overwrite(&draw_data);
 
         let stride = size_of::<vk::DrawIndexedIndirectCommand>() as _;
         device.cmd_draw_indexed_indirect(
             command_buffer,
             indirect_buffer.buffer,
-            (stride) as vk::DeviceSize,
+            0,
             draw_commands.len() as _,
             stride,
         );
@@ -493,8 +486,7 @@ unsafe fn storage_buffer<T>(
     device: &ash::Device,
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
-    descriptor_pool: vk::DescriptorPool,
-    shared_layout: vk::DescriptorSetLayout,
+    descriptor_set: vk::DescriptorSet,
     binding: usize,
 ) -> Buffer<T> {
     let mut buffer = Buffer::new(
@@ -505,7 +497,7 @@ unsafe fn storage_buffer<T>(
         vk::BufferUsageFlags::STORAGE_BUFFER,
         10_000,
     );
-    buffer.update_descriptor_set(device, descriptor_pool, shared_layout, binding);
+    buffer.update_descriptor_set(device, descriptor_set, binding);
     buffer
 }
 
@@ -603,14 +595,21 @@ unsafe fn create_descriptor_layouts(
             binding: 3,
             descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            descriptor_count: 1000,
+            descriptor_count: 117,
             ..Default::default()
         },
     ];
+    let flags = vk::DescriptorBindingFlags::PARTIALLY_BOUND
+        | vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT;
+    let mut binding_flags = vk::DescriptorSetLayoutBindingFlagsCreateInfoEXT::builder()
+        .binding_flags(std::slice::from_ref(&flags));
+    binding_flags.binding_count = 0;
 
     let shared_layout = device
         .create_descriptor_set_layout(
-            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
+            &vk::DescriptorSetLayoutCreateInfo::builder()
+                .bindings(&bindings)
+                .push_next(&mut binding_flags),
             None,
         )
         .unwrap();
@@ -922,10 +921,13 @@ unsafe fn get_device(
         .queue_priorities(&[1.0])
         .queue_family_index(queue_index);
 
-    let mut vulkan_11_features =
-        vk::PhysicalDeviceVulkan11Features::builder().shader_draw_parameters(true);
+    let mut vulkan_11_features = vk::PhysicalDeviceVulkan11Features::builder()
+        .shader_draw_parameters(true)
+        .storage_buffer16_bit_access(true);
 
-    let enabled_features = vk::PhysicalDeviceFeatures::builder().multi_draw_indirect(true);
+    let enabled_features = vk::PhysicalDeviceFeatures::builder()
+        .multi_draw_indirect(true)
+        .shader_int16(true);
 
     let device = instance
         .create_device(

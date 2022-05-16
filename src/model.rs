@@ -42,7 +42,8 @@ pub struct Primitive {
     pub material_id: u16,
 }
 
-#[derive(Debug)]
+#[repr(C, align(16))]
+#[derive(Debug, Clone)]
 pub struct Material {
     pub base_color_texture_id: u16,
 }
@@ -96,17 +97,12 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
 
     for material in gltf.materials() {
         if let Some(index) = material.index() {
-            println!("Importing material {}..", index);
-            if let Some(material) = import_material(material, &mut import_state) {
-                import_state.materials.push(material);
-                println!("..done!");
-            } else {
-                eprintln!(
-                    "WARNING: Material {} not imported (probably does not have a PBR texture)",
-                    index
-                );
-            }
+            import_material(material, &mut import_state);
         }
+    }
+
+    for image in gltf.images() {
+        import_image(image, &mut import_state);
     }
 
     for mesh in gltf.meshes() {
@@ -140,51 +136,41 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
     }
 }
 
-unsafe fn upload_models(import_state: &ImportState) {
-    let vulkan_context = import_state.vulkan_context;
+fn import_image(image: gltf::Image, import_state: &mut ImportState) {
+    match image.source() {
+        gltf::image::Source::View { view, .. } => {
+            let buffer = import_state.buffers[0];
+            let offset = view.offset();
+            let length = view.length();
+            let data = &buffer[offset..offset + length];
 
-    // Copy indices and vertices into buffers.
-    vulkan_context.index_buffer.overwrite(&import_state.indices);
-    vulkan_context
-        .vertex_buffer
-        .overwrite(&import_state.vertices);
+            let mut image = image::io::Reader::new(Cursor::new(data));
+            image.set_format(image::ImageFormat::Png);
+            let image = image.decode().unwrap();
+            let base_colour_texture = unsafe {
+                Texture::new(
+                    import_state.vulkan_context,
+                    &import_state.scratch_buffer,
+                    image,
+                )
+            };
+            import_state.textures.push(base_colour_texture);
+        }
+        _ => {}
+    }
+}
 
-    // Copy model data into model buffer.
-    let model_data = import_state
-        .models
-        .iter()
-        .map(|m| ModelData {
-            transform: m.transform,
-        })
-        .collect::<Vec<_>>();
-    vulkan_context.model_buffer.overwrite(&model_data);
+fn import_material(material: gltf::Material, import_state: &mut ImportState) {
+    let base_color_texture_id =
+        if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
+            texture.texture().source().index() as u16
+        } else {
+            0
+        };
 
-    // Copy material data into material buffer.
-    vulkan_context
-        .material_buffer
-        .overwrite(&import_state.materials);
-
-    let image_info = import_state
-        .textures
-        .iter()
-        .map(|t| t.image_descriptor_info)
-        .collect::<Vec<_>>();
-
-    // Write texture descriptor sets
-    let texture_write = vk::WriteDescriptorSet::builder()
-        .image_info(&image_info)
-        .dst_binding(3)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .dst_set(vulkan_context.shared_descriptor_set);
-
-    vulkan_context
-        .device
-        .update_descriptor_sets(std::slice::from_ref(&texture_write), &[]);
-
-    // Clean up the scratch buffer
-    let device = &vulkan_context.device;
-    let scratch_buffer = &import_state.scratch_buffer;
-    scratch_buffer.destroy(device);
+    import_state.materials.push(Material {
+        base_color_texture_id,
+    });
 }
 
 fn import_node(
@@ -200,10 +186,16 @@ fn import_node(
         format!("Node {}", node.index())
     };
 
-    if let Some(mesh) = node.mesh() {
-        let mesh = import_state.mesh_ids.get(&mesh.index()).unwrap().clone();
-        import_state.models.push(Model::new(name, transform, mesh));
-    }
+    let mesh = if let Some(mesh) = node.mesh() {
+        import_state.mesh_ids.get(&mesh.index()).unwrap().clone()
+    } else {
+        import_state.meshes.alloc(Mesh {
+            primitives: Vec::new(),
+            name: "Empty".to_string(),
+        })
+    };
+
+    import_state.models.push(Model::new(name, transform, mesh));
 
     for node in node.children() {
         import_node(node, import_state, &local_transform);
@@ -217,13 +209,17 @@ fn import_primitive(
 ) {
     println!("Importing primitive {}", primitive.index());
     if has_pbr_material(&primitive) {
-        println!("Primitive has material importing geometry..");
         let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
+        let material_id = primitive.material().index().unwrap() as _;
+        println!(
+            "Primitive has material {} importing geometry..",
+            material_id
+        );
         primitives.push(Primitive {
             index_offset: import_state.index_offset,
             vertex_offset: import_state.vertex_offset,
             num_indices,
-            material_id: primitive.material().index().unwrap() as _,
+            material_id,
         });
         import_state.index_offset += num_indices;
         import_state.vertex_offset += num_vertices;
@@ -242,38 +238,6 @@ fn has_pbr_material(primitive: &gltf::Primitive) -> bool {
         .pbr_metallic_roughness()
         .base_color_texture()
         .is_some()
-}
-
-fn import_material(material: gltf::Material, import_state: &mut ImportState) -> Option<Material> {
-    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
-        match texture.texture().source().source() {
-            gltf::image::Source::View { view, .. } => {
-                let buffer = import_state.buffers[0];
-                let offset = view.offset();
-                let length = view.length();
-                let data = &buffer[offset..offset + length];
-
-                let mut image = image::io::Reader::new(Cursor::new(data));
-                image.set_format(image::ImageFormat::Png);
-                let image = image.decode().unwrap();
-                let base_colour_texture = unsafe {
-                    Texture::new(
-                        import_state.vulkan_context,
-                        &import_state.scratch_buffer,
-                        image,
-                    )
-                };
-                import_state.textures.push(base_colour_texture);
-
-                Some(Material {
-                    base_color_texture_id: texture.texture().index() as _,
-                })
-            }
-            _ => None,
-        }
-    } else {
-        None
-    }
 }
 
 fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) -> (u32, u32) {
@@ -323,4 +287,51 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
     }
 
     (num_indices, num_vertices)
+}
+
+unsafe fn upload_models(import_state: &ImportState) {
+    let vulkan_context = import_state.vulkan_context;
+
+    // Copy indices and vertices into buffers.
+    vulkan_context.index_buffer.overwrite(&import_state.indices);
+    vulkan_context
+        .vertex_buffer
+        .overwrite(&import_state.vertices);
+
+    // Copy model data into model buffer.
+    let model_data = import_state
+        .models
+        .iter()
+        .map(|m| ModelData {
+            transform: m.transform,
+        })
+        .collect::<Vec<_>>();
+    vulkan_context.model_buffer.overwrite(&model_data);
+
+    // Copy material data into material buffer.
+    vulkan_context
+        .material_buffer
+        .overwrite(&import_state.materials);
+
+    let image_info = import_state
+        .textures
+        .iter()
+        .map(|t| t.image_descriptor_info)
+        .collect::<Vec<_>>();
+
+    // Write texture descriptor sets
+    let texture_write = vk::WriteDescriptorSet::builder()
+        .image_info(&image_info)
+        .dst_binding(3)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .dst_set(vulkan_context.shared_descriptor_set);
+
+    vulkan_context
+        .device
+        .update_descriptor_sets(std::slice::from_ref(&texture_write), &[]);
+
+    // Clean up the scratch buffer
+    let device = &vulkan_context.device;
+    let scratch_buffer = &import_state.scratch_buffer;
+    scratch_buffer.destroy(device);
 }
