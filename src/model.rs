@@ -96,7 +96,7 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
     let mut import_state = ImportState::new(buffers, vulkan_context);
 
     for material in gltf.materials() {
-        if let Some(index) = material.index() {
+        if let Some(_index) = material.index() {
             import_material(material, &mut import_state);
         }
     }
@@ -137,6 +137,18 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
 }
 
 fn import_image(image: gltf::Image, import_state: &mut ImportState) {
+    if !image.name().unwrap().contains("BaseColor") {
+        import_state.textures.push(Texture {
+            image_descriptor_info: vk::DescriptorImageInfo {
+                sampler: import_state.vulkan_context.sampler,
+
+                ..Default::default()
+            },
+        });
+        println!("Not importing texture {:?}", image.name());
+        return;
+    }
+
     match image.source() {
         gltf::image::Source::View { view, .. } => {
             let buffer = import_state.buffers[0];
@@ -324,6 +336,7 @@ unsafe fn upload_models(import_state: &ImportState) {
         .image_info(&image_info)
         .dst_binding(3)
         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .dst_array_element(0)
         .dst_set(vulkan_context.shared_descriptor_set);
 
     vulkan_context

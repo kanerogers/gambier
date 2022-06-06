@@ -6,7 +6,7 @@ use crate::{
     vertex::Vertex,
 };
 use ash::{
-    extensions::khr::Swapchain as SwapchainLoader,
+    extensions::{self, khr::Swapchain as SwapchainLoader},
     vk::{self, KhrShaderDrawParametersFn},
 };
 use nalgebra_glm::TMat4x4;
@@ -155,11 +155,16 @@ impl VulkanContext {
                 11240796,
             );
 
+            let mut descriptor_counts =
+                vk::DescriptorSetVariableDescriptorCountAllocateInfo::builder()
+                    .descriptor_counts(&[1000]);
+
             let shared_descriptor_set = device
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::builder()
                         .descriptor_pool(descriptor_pool)
-                        .set_layouts(std::slice::from_ref(&shared_layout)),
+                        .set_layouts(std::slice::from_ref(&shared_layout))
+                        .push_next(&mut descriptor_counts),
                 )
                 .unwrap()[0];
 
@@ -595,15 +600,20 @@ unsafe fn create_descriptor_layouts(
             binding: 3,
             descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            descriptor_count: 117,
+            descriptor_count: 1000,
             ..Default::default()
         },
     ];
     let flags = vk::DescriptorBindingFlags::PARTIALLY_BOUND
         | vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT;
+    let descriptor_flags = [
+        vk::DescriptorBindingFlags::empty(),
+        vk::DescriptorBindingFlags::empty(),
+        vk::DescriptorBindingFlags::empty(),
+        flags,
+    ];
     let mut binding_flags = vk::DescriptorSetLayoutBindingFlagsCreateInfoEXT::builder()
-        .binding_flags(std::slice::from_ref(&flags));
-    binding_flags.binding_count = 0;
+        .binding_flags(&descriptor_flags);
 
     let shared_layout = device
         .create_descriptor_set_layout(
@@ -668,11 +678,14 @@ unsafe fn create_shader_stages(
 
 unsafe fn init(window: &Window) -> (ash::Entry, ash::Instance) {
     let entry = ash::Entry::load().unwrap();
-    let extensions = ash_window::enumerate_required_extensions(window).unwrap();
+    let mut extensions = ash_window::enumerate_required_extensions(window)
+        .unwrap()
+        .to_vec();
+    extensions.push(extensions::khr::GetPhysicalDeviceProperties2::name().as_ptr());
     let instance = entry
         .create_instance(
             &vk::InstanceCreateInfo::builder()
-                .enabled_extension_names(extensions)
+                .enabled_extension_names(&extensions)
                 .application_info(
                     &vk::ApplicationInfo::builder()
                         .api_version(vk::make_api_version(0, 1, 3, 0))
@@ -929,16 +942,25 @@ unsafe fn get_device(
         .multi_draw_indirect(true)
         .shader_int16(true);
 
+    let mut descriptor_indexing_features = vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
+        .shader_sampled_image_array_non_uniform_indexing(true)
+        .descriptor_binding_partially_bound(true)
+        .descriptor_binding_variable_descriptor_count(true)
+        .runtime_descriptor_array(true);
+
+    let mut robust_features =
+        vk::PhysicalDeviceRobustness2FeaturesEXT::builder().null_descriptor(true);
+
+    let device_create_info = vk::DeviceCreateInfo::builder()
+        .enabled_extension_names(&device_extension_names)
+        .queue_create_infos(std::slice::from_ref(&queue_create_info))
+        .enabled_features(&enabled_features)
+        .push_next(&mut vulkan_11_features)
+        .push_next(&mut robust_features)
+        .push_next(&mut descriptor_indexing_features);
+
     let device = instance
-        .create_device(
-            physical_device,
-            &vk::DeviceCreateInfo::builder()
-                .enabled_extension_names(&device_extension_names)
-                .queue_create_infos(std::slice::from_ref(&queue_create_info))
-                .enabled_features(&enabled_features)
-                .push_next(&mut vulkan_11_features),
-            None,
-        )
+        .create_device(physical_device, &device_create_info, None)
         .unwrap();
 
     (physical_device, device, queue_index)
