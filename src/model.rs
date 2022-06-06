@@ -89,8 +89,8 @@ pub struct ModelContext {
 }
 
 pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
-    let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
-    // let gltf = gltf::Gltf::open("assets/Suzanne.glb").unwrap();
+    // let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
+    let gltf = gltf::Gltf::open("assets/test.glb").unwrap();
     let buffer = gltf.blob.as_ref().unwrap().as_slice();
     let buffers = vec![buffer];
     let mut import_state = ImportState::new(buffers, vulkan_context);
