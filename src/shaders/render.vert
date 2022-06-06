@@ -1,5 +1,20 @@
 #version 460
-#include "common.glsl"
+
+#extension GL_EXT_shader_16bit_storage:enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int16:enable
+
+struct DrawData {
+    uint16_t model_id;
+    uint16_t material_id;
+};
+
+struct Material {
+    uint16_t base_colour_texture_id;
+};
+
+struct ModelData {
+    mat4 transform;
+};
 
 layout (push_constant) uniform globals { 
     mat4 projection;
@@ -24,7 +39,7 @@ layout (location = 1) out uint out_material_id;
 
 void main() {
     DrawData draw_data = draw_data_buffer.draw_data[gl_DrawID];
-    mat4 model = model_buffer.models[draw_data.model_id].transform;
+    mat4 model = model_buffer.models[uint(draw_data.model_id)].transform;
     gl_Position = projection * view * model * vec4(inPosition, 1.0);
     outUV = inUV;
     out_material_id = uint(draw_data.material_id);
