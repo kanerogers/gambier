@@ -33,7 +33,7 @@ fn main() {
     let view = update_camera(camera_y_rot, &camera_pos);
     let mut globals = Globals { projection, view };
     let mut last_frame_time = Instant::now();
-    let (models, meshes, materials) = import_models(&vulkan_context);
+    let model_context = import_models(&vulkan_context);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -114,7 +114,7 @@ fn main() {
             }
 
             winit::event::Event::MainEventsCleared => unsafe {
-                vulkan_context.render(&models, &meshes, &materials, &mut globals);
+                vulkan_context.render(&model_context, &mut globals);
                 last_frame_time = Instant::now();
             },
             _ => {}
@@ -124,7 +124,6 @@ fn main() {
 
 fn get_gpu_type() -> vk::PhysicalDeviceType {
     let mut args = std::env::args();
-    println!("ARGS: {:?}", args);
     if args.nth(1) == Some("integrated".to_string()) {
         return vk::PhysicalDeviceType::INTEGRATED_GPU;
     }

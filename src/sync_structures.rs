@@ -4,6 +4,7 @@ pub struct SyncStructures {
     pub present_semaphore: vk::Semaphore,
     pub render_semaphore: vk::Semaphore,
     pub render_fence: vk::Fence,
+    pub compute_fence: vk::Fence,
 }
 
 impl SyncStructures {
@@ -14,6 +15,9 @@ impl SyncStructures {
                     &vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED),
                     None,
                 )
+                .unwrap();
+            let compute_fence = device
+                .create_fence(&vk::FenceCreateInfo::builder(), None)
                 .unwrap();
             let present_semaphore = device
                 .create_semaphore(&vk::SemaphoreCreateInfo::builder(), None)
@@ -26,6 +30,7 @@ impl SyncStructures {
                 present_semaphore,
                 render_semaphore,
                 render_fence,
+                compute_fence,
             }
         }
     }

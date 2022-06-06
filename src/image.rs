@@ -4,6 +4,7 @@ use crate::memory::allocate_memory;
 
 pub static DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
+#[derive(Debug, Clone)]
 pub struct Image {
     pub image: vk::Image,
     pub view: vk::ImageView,
