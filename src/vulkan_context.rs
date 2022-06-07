@@ -342,7 +342,7 @@ impl VulkanContext {
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [1.0, 1.0, 1.0, 0.0],
+                    float32: [0.4, 0.4, 0.4, 0.0],
                 },
             },
             vk::ClearValue {
@@ -391,6 +391,8 @@ impl VulkanContext {
 
         let mut draw_commands = Vec::new();
         let mut draw_data = Vec::new();
+        let mut model_data = Vec::new();
+
         for (index, model) in models.iter().enumerate() {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
@@ -407,7 +409,17 @@ impl VulkanContext {
                     model_id: index as _,
                 })
             }
+
+            model_data.push(ModelData {
+                transform: model.transform.clone(),
+            });
         }
+
+        // Copy model data into model buffer.
+        self.model_buffer.overwrite(&model_data);
+
+        // Upload materials
+        self.material_buffer.overwrite(&model_context.materials);
 
         // Upload draw commands to the GPU.
         indirect_buffer.overwrite(&draw_commands);

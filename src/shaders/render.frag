@@ -24,6 +24,13 @@ layout (location = 0) out vec4 outColor;
 
 void main(void) {
     Material material = material_buffer.materials[inMaterialID];
-    outColor = texture(textures[nonuniformEXT(uint(material.base_colour_texture_id))], inUV);
+    vec4 baseColor;
+    if (material.baseColorTextureID < 65535) {
+        baseColor = texture(textures[nonuniformEXT(uint(material.baseColorTextureID))], inUV) * material.baseColorFactor;
+    } else {
+        baseColor = material.baseColorFactor;
+    }
+
+    outColor = baseColor;
     outColor.w = 1;
 }
