@@ -6,16 +6,16 @@ pub mod model;
 pub mod swapchain;
 pub mod sync_structures;
 pub mod texture;
+mod timer;
 pub mod vertex;
 pub mod vulkan_context;
-
-use std::time::{Duration, Instant};
 
 use ash::vk;
 use glm::{vec3, Vec3};
 use model::{import_models, ModelContext};
 use nalgebra_glm as glm;
-use rand::Rng;
+
+use timer::Timer;
 use vulkan_context::{Globals, VulkanContext};
 use winit::{
     event::{VirtualKeyCode, WindowEvent},
@@ -34,12 +34,10 @@ fn main() {
     let projection = create_projection_matrix();
     let view = update_camera(camera_y_rot, &camera_pos);
     let mut globals = Globals { projection, view };
-    let mut last_frame_time = Instant::now();
-    let mut run_time = 0.;
-    let mut delta_time: f32 = 0.;
     let mut model_context = import_models(&vulkan_context);
-    let resolution = 100;
+    let resolution = 1000;
     let mut cubes = create_cubes(&mut model_context, resolution);
+    let mut timer = Timer::default();
 
     event_loop.run(move |event, _, control_flow| match event {
         winit::event::Event::WindowEvent {
@@ -53,7 +51,7 @@ fn main() {
             ..
         } => {
             if input.state == winit::event::ElementState::Pressed {
-                let displacement = (100 / 1) as f32 * delta_time.clamp(0., 1.);
+                let displacement = 1 as f32 * timer.delta();
                 match input.virtual_keycode {
                     Some(VirtualKeyCode::W) => {
                         let delta = nalgebra_glm::rotate_y_vec3(
@@ -117,12 +115,9 @@ fn main() {
         }
 
         winit::event::Event::MainEventsCleared => unsafe {
-            delta_time = (Instant::now() - last_frame_time).as_secs_f32();
-            dbg!(delta_time);
-            run_time += delta_time;
-            tick(&mut model_context, run_time, &mut cubes);
             vulkan_context.render(&model_context, &mut globals);
-            last_frame_time = Instant::now();
+            tick(&mut model_context, timer.time(), &mut cubes);
+            timer.tick();
         },
         _ => {}
     });
@@ -135,7 +130,7 @@ fn tick(model_context: &mut ModelContext, elapsed_time: f32, cubes: &mut Vec<Vec
     let scale = models.len() as f32 / 2.;
     for (n, model) in models.iter_mut().enumerate() {
         let translation = &mut cubes[n];
-        translation.y = f32::sin(std::f32::consts::PI * (translation.x + elapsed_time * 2.));
+        translation.y = f32::sin(std::f32::consts::PI * (translation.x + elapsed_time));
         let transform = glm::translate(&glm::identity(), &translation);
 
         let scaling = 1. / scale;
@@ -207,14 +202,6 @@ fn create_projection_matrix() -> glm::TMat4<f32> {
     let f = 1.0 / (fov_y / 2.0).tan();
     let z_near = 0.1;
 
-    #[rustfmt::skip]
-    let niagra = nalgebra_glm::mat4(
-        f / aspect_ratio, 0.0, 0.0, 0.0,
-        0.0, f, 0.0, 0.0,
-        0.0, 0.0, 0., -1.0,
-        0.0, 0.0, z_near, 0.0,
-    );
-
     let fov_rad = fov_y * 2.0 * std::f32::consts::PI / 360.0;
     let focal_length = 1.0 / (fov_rad / 2.0).tan();
 
@@ -224,20 +211,9 @@ fn create_projection_matrix() -> glm::TMat4<f32> {
     let a = n / (f - n);
     let b = f * a;
 
-    #[rustfmt::skip]
-    let vulkan = nalgebra_glm::mat4(
-        x, 0.0, 0.0, 0.0,
-        0.0, y, 0.0, 0.0,
-        0.0, 0.0, a, b, 
-        0.0, 0.0, -1.0, 0.0,
-    );
-
-    // NOTE: Requires depth testing to be configured as per vkguide - NOT niagra.
     let mut vulkan_guide = glm::infinite_perspective_rh_zo(aspect_ratio, fov_y, z_near);
     vulkan_guide.m22 *= -1.; // inverse Y for Vulkan
 
-    // niagra
-    // vulkan
     vulkan_guide
 }
 

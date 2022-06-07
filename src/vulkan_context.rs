@@ -342,7 +342,7 @@ impl VulkanContext {
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.4, 0.4, 0.4, 0.0],
+                    float32: [0.2, 0.2, 0.2, 0.0],
                 },
             },
             vk::ClearValue {

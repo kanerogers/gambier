@@ -8,7 +8,7 @@ use crate::{
     buffer::Buffer,
     texture::{create_scratch_buffer, Texture},
     vertex::Vertex,
-    vulkan_context::{ModelData, VulkanContext},
+    vulkan_context::VulkanContext,
 };
 
 #[derive(Debug, Clone)]
