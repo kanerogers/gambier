@@ -47,6 +47,7 @@ pub struct Primitive {
 pub struct Material {
     pub base_color_factor: Vec4,
     pub base_color_texture_id: u16,
+    pub unlit: u16,
 }
 
 impl Default for Material {
@@ -54,6 +55,7 @@ impl Default for Material {
         Self {
             base_color_factor: vec4(1., 1., 1., 1.),
             base_color_texture_id: u16::MAX,
+            unlit: 0,
         }
     }
 }

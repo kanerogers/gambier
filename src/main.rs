@@ -14,7 +14,7 @@ pub mod vulkan_context;
 
 use ash::vk;
 use camera_controller::CameraController;
-use glm::{vec3, Vec3};
+use glm::{vec3, vec4, Vec3, Vec4};
 use model::{import_models, ModelContext};
 use nalgebra_glm as glm;
 
@@ -37,10 +37,18 @@ fn main() {
 
     let projection = create_projection_matrix();
     let view = camera_controller.view();
-    let mut globals = Globals { projection, view };
+    let light_position = Vec4::new(2., 2., 2., 1.);
+    let mut globals = Globals {
+        projection,
+        view,
+        camera_position: camera_controller.position(),
+        light_position,
+    };
+    println!("globals: {}", std::mem::size_of::<Globals>());
     let mut model_context = import_models(&vulkan_context);
-    let resolution = 50;
-    let mut cubes = create_cubes(&mut model_context, resolution);
+    let resolution = 5;
+    let mut cubes = create_cubes(&mut model_context, resolution, &light_position.xyz());
+
     let mut timer = Timer::default();
 
     event_loop.run(move |event, _, control_flow| match event {
@@ -55,8 +63,9 @@ fn main() {
         }
         winit::event::Event::MainEventsCleared => unsafe {
             globals.view = camera_controller.view();
+            globals.camera_position = camera_controller.position();
             vulkan_context.render(&model_context, &mut globals);
-            tick(&mut model_context, timer.time(), &mut cubes);
+            // tick(&mut model_context, timer.time(), &mut cubes);
             timer.tick();
         },
         _ => {}
@@ -82,7 +91,11 @@ fn tick(model_context: &mut ModelContext, elapsed_time: f32, cubes: &mut Vec<Vec
     }
 }
 
-fn create_cubes(model_context: &mut ModelContext, resolution: usize) -> Vec<Vec3> {
+fn create_cubes(
+    model_context: &mut ModelContext,
+    resolution: usize,
+    light_position: &Vec3,
+) -> Vec<Vec3> {
     let models = &mut model_context.models;
     let cube0 = models.pop().unwrap();
     models.clear();
@@ -123,6 +136,24 @@ fn create_cubes(model_context: &mut ModelContext, resolution: usize) -> Vec<Vec3
         cubes.push(c0_translation);
     }
 
+    let mut light_cube = cube0.clone();
+
+    let transform = glm::translate(&glm::identity(), &light_position);
+
+    let scaling = 1. / scale;
+    light_cube.transform = glm::scale(&transform, &vec3(scaling, scaling, scaling));
+
+    let mut mesh = mesh.clone();
+    let mut material = material.clone();
+
+    material.base_color_factor = vec4(1., 1., 1., 1.);
+    material.unlit = 1;
+    materials.push(material);
+
+    mesh.primitives[0].material_id = resolution as _;
+    light_cube.mesh = meshes.alloc(mesh);
+    models.push(light_cube);
+
     cubes
 }
 
@@ -140,7 +171,7 @@ fn create_projection_matrix() -> glm::TMat4<f32> {
     let aspect_ratio = 800. / 600.;
     let fov_y = 70_f32.to_radians();
     let f = 1.0 / (fov_y / 2.0).tan();
-    let z_near = 0.1;
+    let z_near = 0.001;
 
     let fov_rad = fov_y * 2.0 * std::f32::consts::PI / 360.0;
     let focal_length = 1.0 / (fov_rad / 2.0).tan();

@@ -16,6 +16,8 @@ void main() {
     vec4 localPosition = model * vec4(inPosition, 1.0);
 
     // Set shader output variables
+
+    // TODO: Precompute this per model - this is extremely expensive
     outNormal = normalize(transpose(inverse(mat3(model))) * inNormal);
     outWorldPosition = localPosition.xyz / localPosition.w;
     outUV = inUV;
