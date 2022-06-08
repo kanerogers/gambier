@@ -44,8 +44,8 @@ fn main() {
         camera_position: camera_controller.position(),
         light_position,
     };
-    let mut model_context = import_models(&vulkan_context);
-    let resolution = 20;
+    let model_context = import_models(&vulkan_context);
+    let _resolution = 20;
     // let mut cubes = create_cubes(&mut model_context, resolution, &light_position.xyz());
 
     let mut timer = Timer::default();

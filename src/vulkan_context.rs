@@ -575,7 +575,8 @@ unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
         .create_descriptor_pool(
             &vk::DescriptorPoolCreateInfo::builder()
                 .pool_sizes(&pool_sizes)
-                .max_sets(1000),
+                .max_sets(1000)
+                .flags(vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND),
             None,
         )
         .unwrap()
@@ -618,8 +619,10 @@ unsafe fn create_descriptor_layouts(
             ..Default::default()
         },
     ];
+
     let flags = vk::DescriptorBindingFlags::PARTIALLY_BOUND
-        | vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT;
+        | vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT
+        | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND;
     let descriptor_flags = [
         vk::DescriptorBindingFlags::empty(),
         vk::DescriptorBindingFlags::empty(),
@@ -633,7 +636,8 @@ unsafe fn create_descriptor_layouts(
         .create_descriptor_set_layout(
             &vk::DescriptorSetLayoutCreateInfo::builder()
                 .bindings(&bindings)
-                .push_next(&mut binding_flags),
+                .push_next(&mut binding_flags)
+                .flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL),
             None,
         )
         .unwrap();
@@ -960,6 +964,7 @@ unsafe fn get_device(
         .shader_sampled_image_array_non_uniform_indexing(true)
         .descriptor_binding_partially_bound(true)
         .descriptor_binding_variable_descriptor_count(true)
+        .descriptor_binding_sampled_image_update_after_bind(true)
         .runtime_descriptor_array(true);
 
     let mut robust_features =
