@@ -19,7 +19,7 @@ void main() {
 
     // TODO: Precompute this per model - this is extremely expensive
     outNormal = normalize(transpose(inverse(mat3(model))) * inNormal);
-    outWorldPosition = localPosition.xyz / localPosition.w;
+    outWorldPosition = localPosition.xyz;
     outUV = inUV;
     outMaterialID = uint(draw_data.material_id);
 

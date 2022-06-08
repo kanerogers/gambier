@@ -25,12 +25,13 @@ layout (location = 0) out vec4 outColor;
 
 vec4 blinnPhong(vec4 baseColor) {
     vec3 lightDir = normalize(lightPosition.xyz - inWorldPosition); 
-    float diffuseLight = max(dot(inNormal, lightDir), 0.0);
     vec3 viewDir = normalize(cameraPosition.xyz - inWorldPosition);
-    vec3 reflectDir = reflect(-lightDir, inNormal);
-    float specular = SPECULAR_STRENGTH * pow(max(dot(viewDir, reflectDir), 0.0), 32);
+    vec3 halfwayDir = normalize(lightDir + viewDir);
 
-    return (AMBIENT + diffuseLight + specular) * baseColor;
+    float diffuseLight = max(dot(inNormal, lightDir), 0.0);
+    float specularLight = SPECULAR_STRENGTH * pow(max(dot(halfwayDir, inNormal), 0.0), 16);
+
+    return (AMBIENT + diffuseLight + specularLight) * baseColor;
 }
 
 void main(void) {
@@ -45,7 +46,7 @@ void main(void) {
 
     // 1 - Normal
     if (material.unlit == 0) {
-    outColor = blinnPhong(baseColor);
+        outColor = blinnPhong(baseColor);
     } else {
         outColor = baseColor;
     }
