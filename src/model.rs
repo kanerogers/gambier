@@ -2,16 +2,16 @@ use std::{collections::HashMap, io::Cursor};
 
 use ash::vk;
 use id_arena::{Arena, Id};
-use nalgebra_glm::TMat4;
+use nalgebra_glm::{vec4, TMat4, Vec4};
 
 use crate::{
     buffer::Buffer,
     texture::{create_scratch_buffer, Texture},
     vertex::Vertex,
-    vulkan_context::{ModelData, VulkanContext},
+    vulkan_context::VulkanContext,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Model {
     pub name: String,
     pub transform: nalgebra_glm::TMat4<f32>,
@@ -28,13 +28,13 @@ impl Model {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mesh {
     pub primitives: Vec<Primitive>,
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Primitive {
     pub index_offset: u32,
     pub vertex_offset: u32,
@@ -45,7 +45,17 @@ pub struct Primitive {
 #[repr(C, align(16))]
 #[derive(Debug, Clone)]
 pub struct Material {
+    pub base_color_factor: Vec4,
     pub base_color_texture_id: u16,
+}
+
+impl Default for Material {
+    fn default() -> Self {
+        Self {
+            base_color_factor: vec4(1., 1., 1., 1.),
+            base_color_texture_id: u16::MAX,
+        }
+    }
 }
 
 pub struct ImportState<'a> {
@@ -85,6 +95,7 @@ impl<'a> ImportState<'a> {
 
 pub struct ModelContext {
     pub models: Vec<Model>,
+    pub materials: Vec<Material>,
     pub meshes: Arena<Mesh>,
 }
 
@@ -133,6 +144,7 @@ pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
     ModelContext {
         models: import_state.models,
         meshes: import_state.meshes,
+        materials: import_state.materials,
     }
 }
 
@@ -173,16 +185,15 @@ fn import_image(image: gltf::Image, import_state: &mut ImportState) {
 }
 
 fn import_material(material: gltf::Material, import_state: &mut ImportState) {
-    let base_color_texture_id =
-        if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
-            texture.texture().source().index() as u16
-        } else {
-            0
-        };
+    let mut new_material = Material::default();
 
-    import_state.materials.push(Material {
-        base_color_texture_id,
-    });
+    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
+        new_material.base_color_texture_id = texture.texture().source().index() as u16;
+    }
+
+    new_material.base_color_factor = material.pbr_metallic_roughness().base_color_factor().into();
+
+    import_state.materials.push(new_material);
 }
 
 fn import_node(
@@ -220,36 +231,21 @@ fn import_primitive(
     import_state: &mut ImportState,
 ) {
     println!("Importing primitive {}", primitive.index());
-    if has_pbr_material(&primitive) {
-        let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
-        let material_id = primitive.material().index().unwrap() as _;
-        println!(
-            "Primitive has material {} importing geometry..",
-            material_id
-        );
-        primitives.push(Primitive {
-            index_offset: import_state.index_offset,
-            vertex_offset: import_state.vertex_offset,
-            num_indices,
-            material_id,
-        });
-        import_state.index_offset += num_indices;
-        import_state.vertex_offset += num_vertices;
-        println!("Done - imported {} indices", num_indices);
-    } else {
-        eprintln!(
-            "Not importing primitive {} - does not have PBR colour material",
-            primitive.index(),
-        )
-    }
-}
-
-fn has_pbr_material(primitive: &gltf::Primitive) -> bool {
-    primitive
-        .material()
-        .pbr_metallic_roughness()
-        .base_color_texture()
-        .is_some()
+    let (num_indices, num_vertices) = import_geometry(&primitive, import_state);
+    let material_id = primitive.material().index().unwrap() as _;
+    println!(
+        "Primitive has material {} importing geometry..",
+        material_id
+    );
+    primitives.push(Primitive {
+        index_offset: import_state.index_offset,
+        vertex_offset: import_state.vertex_offset,
+        num_indices,
+        material_id,
+    });
+    import_state.index_offset += num_indices;
+    import_state.vertex_offset += num_vertices;
+    println!("Done - imported {} indices", num_indices);
 }
 
 fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) -> (u32, u32) {
@@ -310,16 +306,6 @@ unsafe fn upload_models(import_state: &ImportState) {
         .vertex_buffer
         .overwrite(&import_state.vertices);
 
-    // Copy model data into model buffer.
-    let model_data = import_state
-        .models
-        .iter()
-        .map(|m| ModelData {
-            transform: m.transform,
-        })
-        .collect::<Vec<_>>();
-    vulkan_context.model_buffer.overwrite(&model_data);
-
     // Copy material data into material buffer.
     vulkan_context
         .material_buffer
@@ -331,17 +317,19 @@ unsafe fn upload_models(import_state: &ImportState) {
         .map(|t| t.image_descriptor_info)
         .collect::<Vec<_>>();
 
-    // Write texture descriptor sets
-    let texture_write = vk::WriteDescriptorSet::builder()
-        .image_info(&image_info)
-        .dst_binding(3)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .dst_array_element(0)
-        .dst_set(vulkan_context.shared_descriptor_set);
+    if image_info.len() > 0 {
+        // Write texture descriptor sets
+        let texture_write = vk::WriteDescriptorSet::builder()
+            .image_info(&image_info)
+            .dst_binding(3)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .dst_array_element(0)
+            .dst_set(vulkan_context.shared_descriptor_set);
 
-    vulkan_context
-        .device
-        .update_descriptor_sets(std::slice::from_ref(&texture_write), &[]);
+        vulkan_context
+            .device
+            .update_descriptor_sets(std::slice::from_ref(&texture_write), &[]);
+    }
 
     // Clean up the scratch buffer
     let device = &vulkan_context.device;

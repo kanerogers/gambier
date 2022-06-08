@@ -7,7 +7,8 @@ struct DrawData {
 };
 
 struct Material {
-    uint16_t base_colour_texture_id;
+    vec4 baseColorFactor;
+    uint16_t baseColorTextureID;
 };
 
 struct ModelData {

@@ -12,15 +12,25 @@ layout(std140, set = 0, binding = 2) readonly buffer MaterialBuffer {
 // Textures
 layout(set = 0, binding = 3) uniform sampler2D textures[];
 
-layout (location = 0) in vec2 in_uv;
-layout (location = 1) flat in uint in_material_id;
+// Input 
+layout (location = 0) in vec3 inWorldPosition;
+layout (location = 1) in vec3 inNormal;
+layout (location = 2) in vec2 inUV;
+layout (location = 3) flat in uint inMaterialID;
 
 // Output
-layout (location = 0) out vec4 out_colour;
+layout (location = 0) out vec4 outColor;
 
 
 void main(void) {
-    Material material = material_buffer.materials[in_material_id];
-    out_colour = texture(textures[nonuniformEXT(uint(material.base_colour_texture_id))], in_uv);
-    out_colour.w = 1;
+    Material material = material_buffer.materials[inMaterialID];
+    vec4 baseColor;
+    if (material.baseColorTextureID < 65535) {
+        baseColor = texture(textures[nonuniformEXT(uint(material.baseColorTextureID))], inUV) * material.baseColorFactor;
+    } else {
+        baseColor = material.baseColorFactor;
+    }
+
+    outColor = baseColor;
+    outColor.w = 1;
 }
