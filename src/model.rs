@@ -47,6 +47,7 @@ pub struct Primitive {
 pub struct Material {
     pub base_color_factor: Vec4,
     pub base_color_texture_id: u16,
+    pub unlit: u16,
 }
 
 impl Default for Material {
@@ -54,6 +55,7 @@ impl Default for Material {
         Self {
             base_color_factor: vec4(1., 1., 1., 1.),
             base_color_texture_id: u16::MAX,
+            unlit: 0,
         }
     }
 }
@@ -100,8 +102,8 @@ pub struct ModelContext {
 }
 
 pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
-    // let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
-    let gltf = gltf::Gltf::open("assets/test.glb").unwrap();
+    let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
+    // let gltf = gltf::Gltf::open("assets/test.glb").unwrap();
     let buffer = gltf.blob.as_ref().unwrap().as_slice();
     let buffers = vec![buffer];
     let mut import_state = ImportState::new(buffers, vulkan_context);
@@ -266,7 +268,7 @@ fn import_geometry(primitive: &gltf::Primitive, import_state: &mut ImportState) 
     let mut normals = Vec::new();
     if let Some(normal_reader) = reader.read_normals() {
         for normal in normal_reader {
-            let normal = [normal[0], normal[1] * -1., normal[2]];
+            let normal = [normal[0], normal[1], normal[2]];
             normals.push(normal);
         }
     } else {

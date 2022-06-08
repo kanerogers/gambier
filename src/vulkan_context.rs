@@ -9,7 +9,7 @@ use ash::{
     extensions::{self, khr::Swapchain as SwapchainLoader},
     vk::{self, KhrShaderDrawParametersFn},
 };
-use nalgebra_glm::TMat4x4;
+use nalgebra_glm::{TMat4x4, Vec3, Vec4};
 use std::{
     ffi::{CStr, CString},
     mem::size_of,
@@ -35,11 +35,13 @@ impl Default for SelectedPipeline {
     }
 }
 
-#[repr(C, align(16))]
+#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct Globals {
     pub projection: TMat4x4<f32>,
     pub view: TMat4x4<f32>,
+    pub camera_position: Vec4,
+    pub light_position: Vec4,
 }
 
 #[repr(C, align(16))]
@@ -384,7 +386,7 @@ impl VulkanContext {
         device.cmd_push_constants(
             command_buffer,
             pipeline_layout,
-            vk::ShaderStageFlags::VERTEX,
+            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             0,
             global_push_constant,
         );
@@ -641,7 +643,7 @@ unsafe fn create_descriptor_layouts(
             &vk::PipelineLayoutCreateInfo::builder()
                 .set_layouts(&[shared_layout])
                 .push_constant_ranges(&[vk::PushConstantRange {
-                    stage_flags: vk::ShaderStageFlags::VERTEX,
+                    stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                     offset: 0,
                     size: size_of::<Globals>() as _,
                     ..Default::default()

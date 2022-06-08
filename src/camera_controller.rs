@@ -1,4 +1,4 @@
-use nalgebra_glm::{Mat4x4, Vec3};
+use nalgebra_glm::{Mat4x4, Vec3, Vec4};
 use winit::event::{DeviceEvent, ElementState, VirtualKeyCode};
 
 use crate::camera::Camera;
@@ -67,5 +67,9 @@ impl CameraController {
         self.movement_this_frame = Vec3::zeros();
         self.yaw = 0.;
         self.pitch = 0.;
+    }
+
+    pub fn position(&self) -> Vec4 {
+        nalgebra_glm::vec3_to_vec4(&self.camera.position)
     }
 }

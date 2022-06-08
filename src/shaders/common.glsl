@@ -9,6 +9,7 @@ struct DrawData {
 struct Material {
     vec4 baseColorFactor;
     uint16_t baseColorTextureID;
+    uint16_t unlit; // boolean
 };
 
 struct ModelData {
@@ -18,6 +19,8 @@ struct ModelData {
 layout (push_constant) uniform globals { 
     mat4 projection;
     mat4 view;
+    vec4 cameraPosition;
+    vec4 lightPosition;
 };
 
 layout(std140, set = 0, binding = 0) readonly buffer DrawDataBuffer {
