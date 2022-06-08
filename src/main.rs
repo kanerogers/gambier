@@ -1,4 +1,6 @@
 pub mod buffer;
+mod camera;
+mod camera_controller;
 pub mod frame;
 pub mod image;
 pub mod memory;
@@ -11,6 +13,7 @@ pub mod vertex;
 pub mod vulkan_context;
 
 use ash::vk;
+use camera_controller::CameraController;
 use glm::{vec3, Vec3};
 use model::{import_models, ModelContext};
 use nalgebra_glm as glm;
@@ -18,7 +21,7 @@ use nalgebra_glm as glm;
 use timer::Timer;
 use vulkan_context::{Globals, VulkanContext};
 use winit::{
-    event::{VirtualKeyCode, WindowEvent},
+    event::WindowEvent,
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
@@ -26,16 +29,17 @@ use winit::{
 fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
+    window.set_cursor_grab(true).unwrap();
+    window.set_cursor_visible(false);
     let gpu_type = get_gpu_type();
     let mut vulkan_context = VulkanContext::new(&window, gpu_type);
-    let mut camera_pos = nalgebra_glm::vec3(0., 0.0, 1.5);
-    let mut camera_y_rot = 0.;
+    let mut camera_controller = CameraController::default();
 
     let projection = create_projection_matrix();
-    let view = update_camera(camera_y_rot, &camera_pos);
+    let view = camera_controller.view();
     let mut globals = Globals { projection, view };
     let mut model_context = import_models(&vulkan_context);
-    let resolution = 1000;
+    let resolution = 50;
     let mut cubes = create_cubes(&mut model_context, resolution);
     let mut timer = Timer::default();
 
@@ -46,75 +50,11 @@ fn main() {
         } => {
             *control_flow = ControlFlow::Exit;
         }
-        winit::event::Event::WindowEvent {
-            event: winit::event::WindowEvent::KeyboardInput { input, .. },
-            ..
-        } => {
-            if input.state == winit::event::ElementState::Pressed {
-                let displacement = 1 as f32 * timer.delta();
-                match input.virtual_keycode {
-                    Some(VirtualKeyCode::W) => {
-                        let delta = nalgebra_glm::rotate_y_vec3(
-                            &glm::vec3(0., 0., -displacement),
-                            camera_y_rot,
-                        );
-                        camera_pos += delta;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    Some(VirtualKeyCode::S) => {
-                        let delta = nalgebra_glm::rotate_y_vec3(
-                            &nalgebra_glm::vec3(0., 0., displacement),
-                            camera_y_rot,
-                        );
-                        camera_pos += delta;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    Some(VirtualKeyCode::A) => {
-                        let delta = nalgebra_glm::rotate_y_vec3(
-                            &nalgebra_glm::vec3(-displacement, 0., 0.),
-                            camera_y_rot,
-                        );
-                        camera_pos += delta;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    Some(VirtualKeyCode::D) => {
-                        let delta = nalgebra_glm::rotate_y_vec3(
-                            &nalgebra_glm::vec3(displacement, 0., 0.),
-                            camera_y_rot,
-                        );
-                        camera_pos += delta;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    Some(VirtualKeyCode::Space) => {
-                        let delta = nalgebra_glm::rotate_y_vec3(
-                            &nalgebra_glm::vec3(0., displacement, 0.),
-                            camera_y_rot,
-                        );
-                        camera_pos += delta;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    Some(VirtualKeyCode::LControl) => {
-                        let delta = nalgebra_glm::rotate_y_vec3(
-                            &nalgebra_glm::vec3(0., -displacement, 0.),
-                            camera_y_rot,
-                        );
-                        camera_pos += delta;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    Some(VirtualKeyCode::Q) => {
-                        camera_y_rot += displacement;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    Some(VirtualKeyCode::E) => {
-                        camera_y_rot -= displacement;
-                        globals.view = update_camera(camera_y_rot, &camera_pos);
-                    }
-                    _ => {}
-                }
-            }
+        winit::event::Event::DeviceEvent { event, .. } => {
+            camera_controller.input(event, timer.delta());
         }
-
         winit::event::Event::MainEventsCleared => unsafe {
+            globals.view = camera_controller.view();
             vulkan_context.render(&model_context, &mut globals);
             tick(&mut model_context, timer.time(), &mut cubes);
             timer.tick();
@@ -215,15 +155,4 @@ fn create_projection_matrix() -> glm::TMat4<f32> {
     vulkan_guide.m22 *= -1.; // inverse Y for Vulkan
 
     vulkan_guide
-}
-
-fn update_camera(camera_y_rot: f32, camera_pos: &nalgebra_glm::Vec3) -> nalgebra_glm::TMat4<f32> {
-    let new = nalgebra_glm::rotate_y(
-        &nalgebra_glm::translate(&nalgebra_glm::identity(), camera_pos),
-        camera_y_rot,
-    )
-    .try_inverse()
-    .unwrap();
-
-    new
 }
