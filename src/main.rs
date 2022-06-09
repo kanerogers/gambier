@@ -44,9 +44,9 @@ fn main() {
         camera_position: camera_controller.position(),
         light_position,
     };
-    let model_context = import_models(&vulkan_context);
-    let _resolution = 20;
-    // let mut cubes = create_cubes(&mut model_context, resolution, &light_position.xyz());
+    let mut model_context = import_models(&vulkan_context);
+    let resolution = 20;
+    let mut cubes = create_cubes(&mut model_context, resolution, &light_position.xyz());
 
     let mut timer = Timer::default();
 
@@ -63,7 +63,7 @@ fn main() {
         winit::event::Event::MainEventsCleared => unsafe {
             globals.view = camera_controller.view();
             globals.camera_position = camera_controller.position();
-            // tick(&mut model_context, timer.time(), &mut cubes, &mut globals);
+            tick(&mut model_context, timer.time(), &mut cubes, &mut globals);
             vulkan_context.render(&model_context, &mut globals);
             timer.tick();
         },

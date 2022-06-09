@@ -1,5 +1,9 @@
-#version 450
+#version 460
+#include "common.glsl"
+
 
 void main() {
-    // hello wurls
+    uint id = gl_GlobalInvocationID.x;
+    DrawData draw_data = draw_data_buffer.draw_data[id];
+    ModelData model = model_buffer.models[nonuniformEXT(draw_data.model_id)];
 }

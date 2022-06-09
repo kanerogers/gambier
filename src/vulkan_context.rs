@@ -3,6 +3,7 @@ use crate::{
     image::{Image, DEPTH_FORMAT},
     model::{Material, ModelContext},
     swapchain::Swapchain,
+    sync_structures,
     vertex::Vertex,
 };
 use ash::{
@@ -258,27 +259,13 @@ impl VulkanContext {
         let render_fence = &sync_structures.render_fence;
         let present_semaphore = &sync_structures.present_semaphore;
         let render_semaphore = &sync_structures.render_semaphore;
-        let command_buffer = frame.command_buffer;
-
         let device = &self.device;
         let swapchain = &self.swapchain;
-        let render_pass = self.render_pass;
-        let framebuffers = &self.framebuffers;
-        let pipeline = &self.colored_pipeline;
-
-        let index_buffer = self.index_buffer.buffer;
-        let vertex_buffer = self.vertex_buffer.buffer;
-        let indirect_buffer = &self.indirect_buffer;
-
-        let pipeline_layout = self.pipeline_layout;
 
         let models = &model_context.models;
         let meshes = &model_context.meshes;
-
-        let global_push_constant = std::slice::from_raw_parts(
-            (globals as *const Globals) as *const u8,
-            size_of::<Globals>(),
-        );
+        let draw_commands =
+            self.build_draw_commands(models, meshes, model_context, &self.indirect_buffer);
 
         device
             .wait_for_fences(std::slice::from_ref(render_fence), true, 1000000000)
@@ -296,39 +283,53 @@ impl VulkanContext {
             )
             .unwrap();
 
-        // Compute
-        let compute_command_buffer = create_command_buffer(device, self.command_pool);
-        device
-            .begin_command_buffer(
-                compute_command_buffer,
-                &vk::CommandBufferBeginInfo::builder()
-                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
-            )
-            .unwrap();
-        device.cmd_bind_pipeline(
-            compute_command_buffer,
-            vk::PipelineBindPoint::COMPUTE,
-            self.compute_pipeline,
-        );
-        device.cmd_dispatch(compute_command_buffer, 1, 1, 1);
-        device.end_command_buffer(compute_command_buffer).unwrap();
-        let submit_info = vk::SubmitInfo::builder()
-            .command_buffers(std::slice::from_ref(&compute_command_buffer));
+        // Run GPU Culling
+        // self.cull_objects(device, sync_structures, &draw_commands);
 
-        device
-            .queue_submit(
-                self.present_queue,
-                std::slice::from_ref(&submit_info),
-                sync_structures.compute_fence,
-            )
+        // Draw the objects!
+        self.draw(globals, frame, swapchain_image_index, draw_commands);
+
+        let present_info = vk::PresentInfoKHR::builder()
+            .swapchains(std::slice::from_ref(&swapchain.swapchain))
+            .wait_semaphores(std::slice::from_ref(render_semaphore))
+            .image_indices(std::slice::from_ref(&swapchain_image_index));
+
+        swapchain
+            .loader
+            .queue_present(self.present_queue, &present_info)
             .unwrap();
-        device
-            .wait_for_fences(&[sync_structures.compute_fence], true, 1000000000)
-            .unwrap();
-        device
-            .reset_fences(&[sync_structures.compute_fence])
-            .unwrap();
-        device.free_command_buffers(self.command_pool, &[compute_command_buffer]);
+
+        self.frame_index = (self.frame_index + 1) % 3;
+    }
+
+    unsafe fn draw(
+        &self,
+        globals: &Globals,
+        frame: &Frame,
+        swapchain_image_index: u32,
+        draw_commands: Vec<vk::DrawIndexedIndirectCommand>,
+    ) {
+        let device = &self.device;
+        let sync_structures = &frame.sync_structures;
+        let render_fence = sync_structures.render_fence;
+        let present_semaphore = &sync_structures.present_semaphore;
+        let render_semaphore = &sync_structures.render_semaphore;
+        let command_buffer = frame.command_buffer;
+
+        let swapchain = &self.swapchain;
+        let render_pass = self.render_pass;
+        let framebuffers = &self.framebuffers;
+        let pipeline = &self.colored_pipeline;
+
+        let index_buffer = self.index_buffer.buffer;
+        let vertex_buffer = self.vertex_buffer.buffer;
+        let indirect_buffer = &self.indirect_buffer;
+
+        let pipeline_layout = self.pipeline_layout;
+        let global_push_constant = std::slice::from_raw_parts(
+            (globals as *const Globals) as *const u8,
+            size_of::<Globals>(),
+        );
 
         device
             .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
@@ -340,7 +341,6 @@ impl VulkanContext {
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
             .unwrap();
-
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
@@ -364,7 +364,6 @@ impl VulkanContext {
             &render_pass_begin_info,
             vk::SubpassContents::INLINE,
         );
-
         device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, *pipeline);
         device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32);
         device.cmd_bind_vertex_buffers(
@@ -373,7 +372,6 @@ impl VulkanContext {
             std::slice::from_ref(&vertex_buffer),
             &[0],
         );
-
         device.cmd_bind_descriptor_sets(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
@@ -382,7 +380,6 @@ impl VulkanContext {
             &[self.shared_descriptor_set],
             &[],
         );
-
         device.cmd_push_constants(
             command_buffer,
             pipeline_layout,
@@ -390,11 +387,41 @@ impl VulkanContext {
             0,
             global_push_constant,
         );
+        let stride = size_of::<vk::DrawIndexedIndirectCommand>() as _;
+        device.cmd_draw_indexed_indirect(
+            command_buffer,
+            indirect_buffer.buffer,
+            0,
+            draw_commands.len() as _,
+            stride,
+        );
+        device.cmd_end_render_pass(command_buffer);
+        device.end_command_buffer(command_buffer).unwrap();
+        // Submit
+        let submit_info = vk::SubmitInfo::builder()
+            .command_buffers(std::slice::from_ref(&command_buffer))
+            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+            .wait_semaphores(std::slice::from_ref(present_semaphore))
+            .signal_semaphores(std::slice::from_ref(render_semaphore));
+        device
+            .queue_submit(
+                self.present_queue,
+                std::slice::from_ref(&submit_info),
+                render_fence,
+            )
+            .unwrap();
+    }
 
+    unsafe fn build_draw_commands(
+        &self,
+        models: &Vec<crate::model::Model>,
+        meshes: &id_arena::Arena<crate::model::Mesh>,
+        model_context: &ModelContext,
+        indirect_buffer: &Buffer<vk::DrawIndexedIndirectCommand>,
+    ) -> Vec<vk::DrawIndexedIndirectCommand> {
         let mut draw_commands = Vec::new();
         let mut draw_data = Vec::new();
         let mut model_data = Vec::new();
-
         for (index, model) in models.iter().enumerate() {
             let mesh = meshes.get(model.mesh).unwrap();
             for primitive in &mesh.primitives {
@@ -416,53 +443,53 @@ impl VulkanContext {
                 transform: model.transform.clone(),
             });
         }
-
         // Copy model data into model buffer.
         self.model_buffer.overwrite(&model_data);
-
         // Upload materials
         self.material_buffer.overwrite(&model_context.materials);
-
         // Upload draw commands to the GPU.
         indirect_buffer.overwrite(&draw_commands);
         self.draw_data_buffer.overwrite(&draw_data);
+        draw_commands
+    }
 
-        let stride = size_of::<vk::DrawIndexedIndirectCommand>() as _;
-        device.cmd_draw_indexed_indirect(
-            command_buffer,
-            indirect_buffer.buffer,
-            0,
-            draw_commands.len() as _,
-            stride,
+    unsafe fn cull_objects(
+        &self,
+        device: &ash::Device,
+        sync_structures: &crate::sync_structures::SyncStructures,
+        draw_commands: &Vec<vk::DrawIndexedIndirectCommand>,
+    ) {
+        let compute_command_buffer = create_command_buffer(device, self.command_pool);
+        device
+            .begin_command_buffer(
+                compute_command_buffer,
+                &vk::CommandBufferBeginInfo::builder()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )
+            .unwrap();
+        device.cmd_bind_pipeline(
+            compute_command_buffer,
+            vk::PipelineBindPoint::COMPUTE,
+            self.compute_pipeline,
         );
-
-        device.cmd_end_render_pass(command_buffer);
-        device.end_command_buffer(command_buffer).unwrap();
-
-        // Submit
+        device.cmd_dispatch(compute_command_buffer, draw_commands.len() as _, 1, 1);
+        device.end_command_buffer(compute_command_buffer).unwrap();
         let submit_info = vk::SubmitInfo::builder()
-            .command_buffers(std::slice::from_ref(&command_buffer))
-            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-            .wait_semaphores(std::slice::from_ref(present_semaphore))
-            .signal_semaphores(std::slice::from_ref(render_semaphore));
+            .command_buffers(std::slice::from_ref(&compute_command_buffer));
         device
             .queue_submit(
                 self.present_queue,
                 std::slice::from_ref(&submit_info),
-                *render_fence,
+                sync_structures.compute_fence,
             )
             .unwrap();
-        let present_info = vk::PresentInfoKHR::builder()
-            .swapchains(std::slice::from_ref(&swapchain.swapchain))
-            .wait_semaphores(std::slice::from_ref(render_semaphore))
-            .image_indices(std::slice::from_ref(&swapchain_image_index));
-
-        swapchain
-            .loader
-            .queue_present(self.present_queue, &present_info)
+        device
+            .wait_for_fences(&[sync_structures.compute_fence], true, 1000000000)
             .unwrap();
-
-        self.frame_index = (self.frame_index + 1) % 3;
+        device
+            .reset_fences(&[sync_structures.compute_fence])
+            .unwrap();
+        device.free_command_buffers(self.command_pool, &[compute_command_buffer]);
     }
 
     pub unsafe fn one_time_work<F>(&self, work: F) -> ()
@@ -564,7 +591,7 @@ unsafe fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::STORAGE_BUFFER,
-            descriptor_count: 1,
+            descriptor_count: 100,
         },
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -590,7 +617,7 @@ unsafe fn create_descriptor_layouts(
         vk::DescriptorSetLayoutBinding {
             binding: 0,
             descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
-            stage_flags: vk::ShaderStageFlags::VERTEX,
+            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::COMPUTE,
             descriptor_count: 1,
             ..Default::default()
         },
@@ -598,7 +625,7 @@ unsafe fn create_descriptor_layouts(
         vk::DescriptorSetLayoutBinding {
             binding: 1,
             descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
-            stage_flags: vk::ShaderStageFlags::VERTEX,
+            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::COMPUTE,
             descriptor_count: 1,
             ..Default::default()
         },
@@ -618,6 +645,14 @@ unsafe fn create_descriptor_layouts(
             descriptor_count: 1000,
             ..Default::default()
         },
+        // // Textures
+        // vk::DescriptorSetLayoutBinding {
+        //     binding: 3,
+        //     descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        //     stage_flags: vk::ShaderStageFlags::FRAGMENT,
+        //     descriptor_count: 1000,
+        //     ..Default::default()
+        // },
     ];
 
     let flags = vk::DescriptorBindingFlags::PARTIALLY_BOUND
