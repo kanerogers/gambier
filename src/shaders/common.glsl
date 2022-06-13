@@ -13,8 +13,15 @@ struct Material {
     uint16_t unlit; // boolean
 };
 
+// PERF: It may be beneficial to remove this indirection entirely and just add it all to DrawData.
+//       This would involve cloning all the relevant "model" related data mesh.primitives.len() times,
+//       but most models don't have THAT many "sets" of primitives, so it seems like a bad idea to
+//       essentially optimise for that case. In any event it is probably many times cheaper to do a 
+//       clone on the CPU than perform the extra memory fetch in the compute and vertex shader.
 struct ModelData {
     mat4 transform;
+    vec3 sphereCentre;
+    float sphereRadius;
 };
 
 struct VkDrawIndexedIndirectCommand

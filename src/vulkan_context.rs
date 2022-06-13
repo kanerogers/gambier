@@ -1,7 +1,7 @@
 use crate::{
     frame::Frame,
     image::{Image, DEPTH_FORMAT},
-    model::{Material, ModelContext},
+    model::{Material, ModelContext, ModelData},
     swapchain::Swapchain,
     sync_structures,
     vertex::Vertex,
@@ -43,12 +43,6 @@ pub struct Globals {
     pub view: TMat4x4<f32>,
     pub camera_position: Vec4,
     pub light_position: Vec4,
-}
-
-#[repr(C, align(16))]
-#[derive(Debug, Clone)]
-pub struct ModelData {
-    pub transform: TMat4x4<f32>,
 }
 
 #[repr(C, align(16))]
@@ -439,9 +433,7 @@ impl VulkanContext {
                 })
             }
 
-            model_data.push(ModelData {
-                transform: model.transform.clone(),
-            });
+            model_data.push(model.get_model_data(&mesh));
         }
         // Copy model data into model buffer.
         self.model_buffer.overwrite(&model_data);
