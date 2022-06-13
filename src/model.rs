@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Cursor};
 
 use ash::vk;
 use id_arena::{Arena, Id};
-use nalgebra_glm::{vec4, TMat4, Vec3, Vec4};
+use nalgebra_glm::{vec3_to_vec4, vec4, Quat, TMat4, Vec3, Vec4};
 
 use crate::{
     buffer::Buffer,
@@ -14,24 +14,40 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Model {
     pub name: String,
-    pub transform: nalgebra_glm::TMat4<f32>,
+    pub translation: Vec3,
+    pub rotation: Quat,
+    pub scale: Vec3,
     pub mesh: Id<Mesh>,
 }
 
 impl Model {
-    pub fn new(name: String, transform: nalgebra_glm::TMat4<f32>, mesh: Id<Mesh>) -> Self {
+    pub fn new(
+        name: String,
+        translation: Vec3,
+        rotation: Quat,
+        scale: Vec3,
+        mesh: Id<Mesh>,
+    ) -> Self {
         Self {
             name,
-            transform,
+            translation,
+            rotation,
+            scale,
             mesh,
         }
     }
 
     pub(crate) fn get_model_data(&self, mesh: &Mesh) -> ModelData {
+        let translation = nalgebra_glm::translate(&nalgebra_glm::identity(), &self.translation);
+        let rotation = nalgebra_glm::quat_to_mat4(&self.rotation);
+        let scale = nalgebra_glm::scale(&nalgebra_glm::identity(), &self.scale);
+        let transform = translation * rotation * scale;
+        let max_scale = scale.max();
+
         ModelData {
-            transform: self.transform.clone(),
-            sphere_centre: mesh.sphere_centre,
-            sphere_radius: mesh.sphere_radius,
+            transform,
+            sphere_centre: mesh.sphere_centre + &self.translation,
+            sphere_radius: mesh.sphere_radius * max_scale,
         }
     }
 }
@@ -234,6 +250,7 @@ fn import_node(
     parent_transform: &nalgebra_glm::TMat4<f32>,
 ) {
     let local_transform: TMat4<f32> = node.transform().matrix().into();
+    let (translation, rotation, scale) = node.transform().decomposed();
     let transform = parent_transform * &local_transform;
     let name = if let Some(name) = node.name() {
         name.to_string()
@@ -252,9 +269,13 @@ fn import_node(
         })
     };
 
-    import_state
-        .models
-        .push(Model::new(name, transform, mesh_id));
+    import_state.models.push(Model::new(
+        name,
+        translation.into(),
+        rotation.into(),
+        scale.into(),
+        mesh_id,
+    ));
 
     for node in node.children() {
         import_node(node, import_state, &local_transform);
@@ -384,7 +405,7 @@ unsafe fn upload_models(import_state: &ImportState) {
         // Write texture descriptor sets
         let texture_write = vk::WriteDescriptorSet::builder()
             .image_info(&image_info)
-            .dst_binding(3)
+            .dst_binding(4)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .dst_array_element(0)
             .dst_set(vulkan_context.shared_descriptor_set);

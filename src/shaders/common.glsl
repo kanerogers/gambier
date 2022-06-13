@@ -13,11 +13,8 @@ struct Material {
     uint16_t unlit; // boolean
 };
 
-// PERF: It may be beneficial to remove this indirection entirely and just add it all to DrawData.
-//       This would involve cloning all the relevant "model" related data mesh.primitives.len() times,
-//       but most models don't have THAT many "sets" of primitives, so it seems like a bad idea to
-//       essentially optimise for that case. In any event it is probably many times cheaper to do a 
-//       clone on the CPU than perform the extra memory fetch in the compute and vertex shader.
+// TODO:    This is calculated per model, but we need to split out instances and models
+//          a lot better.
 struct ModelData {
     mat4 transform;
     vec3 sphereCentre;
@@ -52,6 +49,9 @@ layout(std140, set = 0, binding = 2) readonly buffer MaterialBuffer {
     Material materials[];
 } material_buffer;
 
-// layout(std430, set = 0, binding = 3) readonly buffer DrawCommandsBuffer {
-//     VkDrawIndexedIndirectCommand draw_commands[];
-// } draw_commands_buffer;
+layout(std430, set = 0, binding = 3) writeonly buffer DrawCommandsBuffer {
+    VkDrawIndexedIndirectCommand draw_commands[];
+} draw_commands_buffer;
+
+// Textures
+layout(set = 0, binding = 4) uniform sampler2D textures[];

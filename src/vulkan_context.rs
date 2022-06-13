@@ -3,14 +3,13 @@ use crate::{
     image::{Image, DEPTH_FORMAT},
     model::{Material, ModelContext, ModelData},
     swapchain::Swapchain,
-    sync_structures,
     vertex::Vertex,
 };
 use ash::{
     extensions::{self, khr::Swapchain as SwapchainLoader},
     vk::{self, KhrShaderDrawParametersFn},
 };
-use nalgebra_glm::{TMat4x4, Vec3, Vec4};
+use nalgebra_glm::{TMat4x4, Vec4};
 use std::{
     ffi::{CStr, CString},
     mem::size_of,
@@ -188,7 +187,7 @@ impl VulkanContext {
                 2,
             );
 
-            let indirect_buffer = Buffer::new(
+            let mut indirect_buffer = Buffer::new(
                 &device,
                 &instance,
                 physical_device,
@@ -196,8 +195,9 @@ impl VulkanContext {
                 vk::BufferUsageFlags::TRANSFER_DST
                     | vk::BufferUsageFlags::STORAGE_BUFFER
                     | vk::BufferUsageFlags::INDIRECT_BUFFER,
-                10_000,
+                100_000,
             );
+            indirect_buffer.update_descriptor_set(&device, shared_descriptor_set, 3);
 
             let filter = vk::Filter::LINEAR;
             let address_mode = vk::SamplerAddressMode::REPEAT;
@@ -278,7 +278,7 @@ impl VulkanContext {
             .unwrap();
 
         // Run GPU Culling
-        // self.cull_objects(device, sync_structures, &draw_commands);
+        self.cull_objects(device, sync_structures, &draw_commands, &globals);
 
         // Draw the objects!
         self.draw(globals, frame, swapchain_image_index, draw_commands);
@@ -377,7 +377,9 @@ impl VulkanContext {
         device.cmd_push_constants(
             command_buffer,
             pipeline_layout,
-            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+            vk::ShaderStageFlags::COMPUTE
+                | vk::ShaderStageFlags::VERTEX
+                | vk::ShaderStageFlags::FRAGMENT,
             0,
             global_push_constant,
         );
@@ -450,8 +452,13 @@ impl VulkanContext {
         device: &ash::Device,
         sync_structures: &crate::sync_structures::SyncStructures,
         draw_commands: &Vec<vk::DrawIndexedIndirectCommand>,
+        globals: &Globals,
     ) {
         let compute_command_buffer = create_command_buffer(device, self.command_pool);
+        let global_push_constant = std::slice::from_raw_parts(
+            (globals as *const Globals) as *const u8,
+            size_of::<Globals>(),
+        );
         device
             .begin_command_buffer(
                 compute_command_buffer,
@@ -459,6 +466,23 @@ impl VulkanContext {
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
             .unwrap();
+        device.cmd_bind_descriptor_sets(
+            compute_command_buffer,
+            vk::PipelineBindPoint::COMPUTE,
+            self.pipeline_layout,
+            0,
+            &[self.shared_descriptor_set],
+            &[],
+        );
+        device.cmd_push_constants(
+            compute_command_buffer,
+            self.pipeline_layout,
+            vk::ShaderStageFlags::COMPUTE
+                | vk::ShaderStageFlags::VERTEX
+                | vk::ShaderStageFlags::FRAGMENT,
+            0,
+            global_push_constant,
+        );
         device.cmd_bind_pipeline(
             compute_command_buffer,
             vk::PipelineBindPoint::COMPUTE,
@@ -629,28 +653,29 @@ unsafe fn create_descriptor_layouts(
             descriptor_count: 1,
             ..Default::default()
         },
-        // Textures
+        // Draw Calls
         vk::DescriptorSetLayoutBinding {
             binding: 3,
+            descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+            stage_flags: vk::ShaderStageFlags::COMPUTE,
+            descriptor_count: 1,
+            ..Default::default()
+        },
+        // Textures
+        vk::DescriptorSetLayoutBinding {
+            binding: 4,
             descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             descriptor_count: 1000,
             ..Default::default()
         },
-        // // Textures
-        // vk::DescriptorSetLayoutBinding {
-        //     binding: 3,
-        //     descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-        //     stage_flags: vk::ShaderStageFlags::FRAGMENT,
-        //     descriptor_count: 1000,
-        //     ..Default::default()
-        // },
     ];
 
     let flags = vk::DescriptorBindingFlags::PARTIALLY_BOUND
         | vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT
         | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND;
     let descriptor_flags = [
+        vk::DescriptorBindingFlags::empty(),
         vk::DescriptorBindingFlags::empty(),
         vk::DescriptorBindingFlags::empty(),
         vk::DescriptorBindingFlags::empty(),
@@ -674,7 +699,9 @@ unsafe fn create_descriptor_layouts(
             &vk::PipelineLayoutCreateInfo::builder()
                 .set_layouts(&[shared_layout])
                 .push_constant_ranges(&[vk::PushConstantRange {
-                    stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    stage_flags: vk::ShaderStageFlags::COMPUTE
+                        | vk::ShaderStageFlags::VERTEX
+                        | vk::ShaderStageFlags::FRAGMENT,
                     offset: 0,
                     size: size_of::<Globals>() as _,
                     ..Default::default()

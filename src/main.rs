@@ -45,7 +45,7 @@ fn main() {
         light_position,
     };
     let mut model_context = import_models(&vulkan_context);
-    let resolution = 20;
+    let resolution = 10;
     let mut cubes = create_cubes(&mut model_context, resolution, &light_position.xyz());
 
     let mut timer = Timer::default();
@@ -63,7 +63,7 @@ fn main() {
         winit::event::Event::MainEventsCleared => unsafe {
             globals.view = camera_controller.view();
             globals.camera_position = camera_controller.position();
-            tick(&mut model_context, timer.time(), &mut cubes, &mut globals);
+            tick(&mut model_context, timer.time());
             vulkan_context.render(&model_context, &mut globals);
             timer.tick();
         },
@@ -71,26 +71,19 @@ fn main() {
     });
 }
 
-fn tick(
-    model_context: &mut ModelContext,
-    elapsed_time: f32,
-    cubes: &mut Vec<Vec3>,
-    globals: &mut Globals,
-) {
+fn tick(model_context: &mut ModelContext, elapsed_time: f32) {
     let models = &mut model_context.models;
     let materials = &mut model_context.materials;
 
-    let scale = models.len() as f32 / 2.;
-    for (n, translation) in cubes.iter_mut().enumerate() {
-        let model = &mut models[n];
-        translation.y = f32::sin(std::f32::consts::PI * (translation.x + elapsed_time));
-        let transform = glm::translate(&glm::identity(), &translation);
-
-        let scaling = 1. / scale;
-        model.transform = glm::scale(&transform, &vec3(scaling, scaling, scaling));
+    let cutoff = models.len() - 2;
+    for (n, model) in models.iter_mut().enumerate() {
+        if n >= cutoff {
+            continue;
+        }
+        model.translation.y = f32::sin(std::f32::consts::PI * (model.translation.x + elapsed_time));
         let material = &mut materials[n];
 
-        let colour = translation.clone() * 0.5 + vec3(0.5, 0.5, 0.5);
+        let colour = model.translation.clone() * 0.5 + vec3(0.5, 0.5, 0.5);
         material.base_color_factor = glm::clamp(&glm::vec3_to_vec4(&colour), 0., 1.);
     }
 }
@@ -119,17 +112,15 @@ fn create_cubes(
 
         let x = (n as f32 + 0.5) / scale - 1.;
         let y = x * x * x;
-        let c0_translation = vec3(x, y, 0.0);
-
-        let transform = glm::translate(&glm::identity(), &c0_translation);
+        c0.translation = vec3(x, y, 0.0);
 
         let scaling = 1. / scale;
-        c0.transform = glm::scale(&transform, &vec3(scaling, scaling, scaling));
+        c0.scale = vec3(scaling, scaling, scaling);
 
         let mut mesh = mesh.clone();
         let mut material = material.clone();
 
-        let colour = c0_translation.clone() * 0.5 + vec3(0.5, 0.5, 0.5);
+        let colour = c0.translation.clone() * 0.5 + vec3(0.5, 0.5, 0.5);
         material.base_color_factor = glm::vec3_to_vec4(&colour);
         materials.push(material);
 
@@ -137,15 +128,14 @@ fn create_cubes(
         c0.mesh = meshes.alloc(mesh);
 
         models.push(c0);
-        cubes.push(c0_translation);
     }
 
     {
         let mut light_cube = cube0.clone();
-        let transform = glm::translate(&glm::identity(), &light_position);
+        light_cube.translation = light_position.clone();
 
         let scaling = 1. / scale;
-        light_cube.transform = glm::scale(&transform, &vec3(scaling, scaling, scaling));
+        light_cube.scale = vec3(scaling, scaling, scaling);
 
         let mut mesh = mesh.clone();
         let mut material = material.clone();
@@ -160,8 +150,8 @@ fn create_cubes(
     }
 
     let mut floor = cube0.clone();
-    let transform = glm::translate(&glm::identity(), &(Vec3::y() * -2.));
-    floor.transform = glm::scale(&transform, &vec3(100., 0.1, 100.));
+    floor.translation = Vec3::y() * -2.;
+    floor.scale = vec3(100., 0.1, 100.);
 
     let mut mesh = mesh.clone();
     let mut material = material.clone();
