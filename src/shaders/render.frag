@@ -1,18 +1,12 @@
 #version 460
 #include "common.glsl"
 
-#extension GL_EXT_nonuniform_qualifier:enable
 #define AMBIENT vec4(0.1)
 #define SPECULAR_STRENGTH 0.5
 
 
 // Input
-layout(std140, set = 0, binding = 2) readonly buffer MaterialBuffer {
-    Material materials[];
-} material_buffer;
 
-// Textures
-layout(set = 0, binding = 3) uniform sampler2D textures[];
 
 // Input 
 layout (location = 0) in vec3 inWorldPosition;

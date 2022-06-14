@@ -1,5 +1,39 @@
-#version 450
+#version 460
+#include "common.glsl"
+
+bool check_is_visible(mat4 mat, vec3 origin, float radius)
+{
+	uint plane_index = 0;
+	for (uint i = 0; i < 3; ++i)
+	{
+		for (uint j = 0; j < 2; ++j, ++plane_index)
+		{
+			if (plane_index == 2 || plane_index == 3)
+			{
+				continue;
+			}
+			const float sign  = (j > 0) ? 1.f : -1.f;
+			vec4        plane = vec4(0, 0, 0, 0);
+			for (uint k = 0; k < 4; ++k)
+			{
+				plane[k] = mat[k][3] + sign * mat[k][i];
+			}
+			plane.xyzw /= sqrt(dot(plane.xyz, plane.xyz));
+			if (dot(origin, plane.xyz) + plane.w + radius < 0)
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
 
 void main() {
-    // hello wurls
+    uint id = gl_GlobalInvocationID.x;
+    DrawData draw_data = draw_data_buffer.draw_data[id];
+    ModelData model = model_buffer.models[nonuniformEXT(draw_data.model_id)];
+    vec3 centre = model.sphereCentre;
+    float radius = model.sphereRadius;
+    bool isVisible = check_is_visible(projection * view, centre, radius);
+    draw_commands_buffer.draw_commands[id].instanceCount = isVisible ? 1 : 0;
 }
