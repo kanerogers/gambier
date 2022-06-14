@@ -46,7 +46,7 @@ fn main() {
     };
     let mut model_context = import_models(&vulkan_context);
     let resolution = 10;
-    // create_cubes(&mut model_context, resolution, &light_position.xyz());
+    create_cubes(&mut model_context, resolution, &light_position.xyz());
 
     let mut timer = Timer::default();
 
@@ -63,7 +63,7 @@ fn main() {
         winit::event::Event::MainEventsCleared => unsafe {
             globals.view = camera_controller.view();
             globals.camera_position = camera_controller.position();
-            // tick(&mut model_context, timer.time());
+            tick(&mut model_context, timer.time());
             vulkan_context.render(&model_context, &mut globals);
             timer.tick();
         },
@@ -88,11 +88,7 @@ fn tick(model_context: &mut ModelContext, elapsed_time: f32) {
     }
 }
 
-fn create_cubes(
-    model_context: &mut ModelContext,
-    resolution: usize,
-    light_position: &Vec3,
-) -> Vec<Vec3> {
+fn create_cubes(model_context: &mut ModelContext, resolution: usize, light_position: &Vec3) {
     let models = &mut model_context.models;
     let cube0 = models.pop().unwrap();
     models.clear();
@@ -104,7 +100,6 @@ fn create_cubes(
     let material = materials.pop().unwrap();
     materials.clear();
 
-    let mut cubes = Vec::new();
     let scale = resolution as f32 / 2.;
 
     for n in 0..resolution {
@@ -163,8 +158,6 @@ fn create_cubes(
     mesh.primitives[0].material_id = models.len() as _;
     floor.mesh = meshes.alloc(mesh);
     models.push(floor);
-
-    cubes
 }
 
 fn get_gpu_type() -> vk::PhysicalDeviceType {
