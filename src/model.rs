@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Cursor};
 
 use ash::vk;
 use id_arena::{Arena, Id};
-use nalgebra_glm::{vec3_to_vec4, vec4, Quat, TMat4, Vec3, Vec4};
+use nalgebra_glm::{vec4, Mat4, Quat, TMat4, Vec3, Vec4};
 
 use crate::{
     buffer::Buffer,
@@ -17,6 +17,7 @@ pub struct Model {
     pub translation: Vec3,
     pub rotation: Quat,
     pub scale: Vec3,
+    pub parent_transform: Mat4,
     pub mesh: Id<Mesh>,
 }
 
@@ -26,6 +27,7 @@ impl Model {
         translation: Vec3,
         rotation: Quat,
         scale: Vec3,
+        parent_transform: nalgebra_glm::TMat4<f32>,
         mesh: Id<Mesh>,
     ) -> Self {
         Self {
@@ -33,12 +35,13 @@ impl Model {
             translation,
             rotation,
             scale,
+            parent_transform,
             mesh,
         }
     }
 
     pub(crate) fn get_model_data(&self, mesh: &Mesh) -> ModelData {
-        let translation = nalgebra_glm::translate(&nalgebra_glm::identity(), &self.translation);
+        let translation = nalgebra_glm::translate(&self.parent_transform, &self.translation);
         let rotation = nalgebra_glm::quat_to_mat4(&self.rotation);
         let scale = nalgebra_glm::scale(&nalgebra_glm::identity(), &self.scale);
         let transform = translation * rotation * scale;
@@ -136,8 +139,8 @@ pub struct ModelContext {
 }
 
 pub fn import_models(vulkan_context: &VulkanContext) -> ModelContext {
-    // let gltf = gltf::Gltf::open("assets/NewSponza_Main_Blender_glTF.glb").unwrap();
-    let gltf = gltf::Gltf::open("assets/test.glb").unwrap();
+    let gltf = gltf::Gltf::open("assets/sponza.glb").unwrap();
+    // let gltf = gltf::Gltf::open("assets/test.glb").unwrap();
     let buffer = gltf.blob.as_ref().unwrap().as_slice();
     let buffers = vec![buffer];
     let mut import_state = ImportState::new(buffers, vulkan_context);
@@ -269,16 +272,19 @@ fn import_node(
         })
     };
 
-    import_state.models.push(Model::new(
-        name,
-        translation.into(),
-        rotation.into(),
-        scale.into(),
-        mesh_id,
-    ));
+    if node.mesh().is_some() {
+        import_state.models.push(Model::new(
+            name,
+            translation.into(),
+            rotation.into(),
+            scale.into(),
+            parent_transform.clone(),
+            mesh_id,
+        ));
+    }
 
     for node in node.children() {
-        import_node(node, import_state, &local_transform);
+        import_node(node, import_state, &transform);
     }
 }
 
